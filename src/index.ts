@@ -458,12 +458,20 @@ app.onError((err, c) => {
   );
 });
 
-// ── Start server ──────────────────────────────────────────────────────────────
+// ── Start server (Node.js runtime only) ───────────────────────────────────────
 
-const port = Number(process.env.PORT ?? 3001);
+const isNodeRuntime =
+  typeof process !== "undefined" &&
+  Boolean(process.versions?.node) &&
+  typeof (globalThis as unknown as { WebSocketPair?: unknown }).WebSocketPair === "undefined" &&
+  (typeof (globalThis as unknown as { navigator?: { userAgent?: string } }).navigator === "undefined" ||
+    (globalThis as unknown as { navigator?: { userAgent?: string } }).navigator?.userAgent !== "Cloudflare-Workers");
 
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`🚀 Backend running on http://localhost:${info.port}`);
-});
+if (isNodeRuntime) {
+  const port = Number(process.env.PORT ?? 3001);
+  serve({ fetch: app.fetch, port }, (info) => {
+    console.log(`🚀 Backend running on http://localhost:${info.port}`);
+  });
+}
 
 export default app;
