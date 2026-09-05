@@ -127,7 +127,7 @@ const ENDPOINTS_CATALOG = [
   { group: "Payments", method: "GET", path: "/api/payments/clients/:clientId", auth: true, desc: "Retrieve all payment transactions for a client" },
 ];
 
-function renderDashboardHtml(port: number, uptime: number) {
+function renderDashboardHtml(baseUrl: string, uptime: number) {
   const rows = ENDPOINTS_CATALOG.map((ep) => {
     const badgeColor =
       ep.method === "GET"
@@ -257,10 +257,11 @@ function renderDashboardHtml(port: number, uptime: number) {
       margin-bottom: 4px;
     }
     .stat-value {
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       font-weight: 700;
       color: #f8fafc;
       font-family: 'JetBrains Mono', monospace;
+      word-break: break-all;
     }
     .card {
       background: #0f172a;
@@ -337,8 +338,8 @@ function renderDashboardHtml(port: number, uptime: number) {
 
       <div class="grid-stats">
         <div class="stat-card">
-          <div class="stat-label">Service Port</div>
-          <div class="stat-value">:${port}</div>
+          <div class="stat-label">Host URL</div>
+          <div class="stat-value" style="font-size: 0.92rem;">${baseUrl}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Database</div>
@@ -346,7 +347,7 @@ function renderDashboardHtml(port: number, uptime: number) {
         </div>
         <div class="stat-card">
           <div class="stat-label">Environment</div>
-          <div class="stat-value">${process.env.NODE_ENV || "development"}</div>
+          <div class="stat-value">${process.env.NODE_ENV || "production"}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Uptime</div>
@@ -380,7 +381,7 @@ function renderDashboardHtml(port: number, uptime: number) {
     <div class="card">
       <div class="card-title">Quick Test Command</div>
       <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 12px;">Test authentication and receive a valid session token:</p>
-      <div class="code-box">curl -X POST http://localhost:${port}/api/auth/login \\
+      <div class="code-box">curl -X POST ${baseUrl}/api/auth/login \\
   -H "Content-Type: application/json" \\
   -d '{"email":"admin@tailorsoft.dev","password":"admin123"}'</div>
     </div>
@@ -392,11 +393,12 @@ function renderDashboardHtml(port: number, uptime: number) {
 app.get("/", (c) => {
   const acceptHeader = c.req.header("Accept") ?? "";
   const isHtml = acceptHeader.includes("text/html");
+  const requestUrl = new URL(c.req.url);
+  const baseUrl = process.env.BACKEND_URL || requestUrl.origin;
 
   if (isHtml) {
-    const port = Number(process.env.PORT ?? 3001);
     const uptime = Math.floor(process.uptime());
-    return c.html(renderDashboardHtml(port, uptime));
+    return c.html(renderDashboardHtml(baseUrl, uptime));
   }
 
   return c.json({
@@ -405,11 +407,13 @@ app.get("/", (c) => {
     name: "TailorSoft REST API",
     version: "1.0.0",
     status: "online",
+    url: baseUrl,
+    productionUrl: "https://novacore-tailorsof-backend.gora55039.workers.dev",
     environment: process.env.NODE_ENV ?? "development",
     uptimeSeconds: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
     endpoints: ENDPOINTS_CATALOG,
-    documentation: "https://github.com/your-repo/tailorsof-backend",
+    documentation: "https://github.com/imgurwindersingh/novacore-tailorsof_backend",
   });
 });
 

@@ -1,7 +1,8 @@
 # novacore-tailorsof — Backend
 
-REST API for the TailorSoft application, built with **Hono** + **Prisma** (SQLite / Cloudflare D1).  
-Deploy independently from the frontend — any Node.js host works (Railway, Render, Fly.io, etc.).
+REST API for the TailorSoft application, built with **Hono** + **Prisma** (SQLite / Cloudflare Workers).
+
+🚀 **Live Production API**: [https://novacore-tailorsof-backend.gora55039.workers.dev](https://novacore-tailorsof-backend.gora55039.workers.dev)
 
 ---
 
