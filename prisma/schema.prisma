@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("ADMIN")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Client {
+  id              String   @id @default(cuid())
+  fullName        String
+  mobile          String   @unique
+  fatherOrHusband String?
+  email           String?
+  address         String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  generalMeasurement GeneralMeasurement?
+  shirtMeasurement   ShirtMeasurement?
+  pantMeasurement    PantMeasurement?
+  orders             Order[]
+
+  @@index([fullName])
+  @@index([mobile])
+}
+
+model GeneralMeasurement {
+  id        String   @id @default(cuid())
+  clientId  String   @unique
+  unit      String   @default("CM")
+  height    Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model ShirtMeasurement {
+  id            String   @id @default(cuid())
+  clientId      String   @unique
+  unit          String   @default("CM")
+  chest         Float?
+  waist         Float?
+  shoulderWidth Float?
+  sleeveLength  Float?
+  shirtLength   Float?
+  neck          Float?
+  cuff          Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model PantMeasurement {
+  id            String   @id @default(cuid())
+  clientId      String   @unique
+  unit          String   @default("CM")
+  waist         Float?
+  hip           Float?
+  thigh         Float?
+  knee          Float?
+  bottomOpening Float?
+  inseam        Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id               String    @id @default(cuid())
+  clientId         String
+  orderNumber      String    @unique
+  status           String    @default("IN_PROGRESS")
+  paymentStatus    String    @default("PENDING")
+  totalPaise       Int       @default(0)
+  expectedDelivery DateTime?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  client   Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  items    OrderItem[]
+  payments Payment[]
+
+  @@index([clientId])
+  @@index([paymentStatus])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id             String  @id @default(cuid())
+  orderId        String
+  garmentType    String
+  description    String?
+  quantity       Int     @default(1)
+  unitPricePaise Int
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  orderId     String
+  amountPaise Int
+  method      String
+  note        String?
+  paidAt      DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([paidAt])
+}
