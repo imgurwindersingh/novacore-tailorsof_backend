@@ -6,7 +6,7 @@ import { listPaymentsByClient, recordPayment } from "../services/payments.servic
 
 const payments = new Hono<{ Variables: AuthVariables }>();
 
-payments.use("/*", requireAuth);
+payments.use(requireAuth);
 
 /**
  * POST /api/payments/orders/:orderId

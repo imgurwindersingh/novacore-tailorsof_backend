@@ -15,7 +15,7 @@ import type { CreateClientWithOrderDTO, MeasurementsDTO, UpdateClientDTO } from 
 const clients = new Hono<{ Variables: AuthVariables }>();
 
 // All client routes require auth
-clients.use("/*", requireAuth);
+clients.use(requireAuth);
 
 function firstIssueMessage(error: { issues: { message: string }[] }): string {
   return error.issues[0]?.message ?? "Invalid input";

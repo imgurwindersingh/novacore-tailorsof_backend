@@ -4,7 +4,7 @@ import { markOrderDelivered, revertOrderDelivery } from "../services/orders.serv
 
 const orders = new Hono<{ Variables: AuthVariables }>();
 
-orders.use("/*", requireAuth);
+orders.use(requireAuth);
 
 /**
  * PATCH /api/orders/:id/deliver

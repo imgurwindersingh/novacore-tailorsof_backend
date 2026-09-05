@@ -6,7 +6,7 @@ import { getRecentClients, getUpcomingDeliveries } from "../services/clients.ser
 const dashboard = new Hono<{ Variables: AuthVariables }>();
 
 // All dashboard routes require auth
-dashboard.use("/*", requireAuth);
+dashboard.use(requireAuth);
 
 /**
  * GET /api/dashboard/stats
