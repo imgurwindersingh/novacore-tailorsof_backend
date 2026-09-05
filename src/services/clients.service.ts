@@ -57,79 +57,99 @@ export async function listClients(args: {
   q?: string;
   page?: number;
 }): Promise<ServiceResult<ClientListResult>> {
-  const page = Math.max(1, args.page ?? 1);
-  const q = args.q?.trim();
-  const where: Prisma.ClientWhereInput = q
-    ? {
-        OR: [
-          { fullName: { contains: q } },
-          { mobile: { contains: q } },
-          { orders: { some: { orderNumber: { contains: q } } } },
-        ],
-      }
-    : {};
+  try {
+    const page = Math.max(1, args.page ?? 1);
+    const q = args.q?.trim();
+    const where: Prisma.ClientWhereInput = q
+      ? {
+          OR: [
+            { fullName: { contains: q } },
+            { mobile: { contains: q } },
+            { orders: { some: { orderNumber: { contains: q } } } },
+          ],
+        }
+      : {};
 
-  const [total, clients] = await prisma.$transaction([
-    prisma.client.count({ where }),
-    prisma.client.findMany({
-      where,
-      include: rowInclude,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
-  ]);
+    const [total, clients] = await prisma.$transaction([
+      prisma.client.count({ where }),
+      prisma.client.findMany({
+        where,
+        include: rowInclude,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
+      }),
+    ]);
 
-  return ok({
-    clients: clients.map(toRow),
-    total,
-    page,
-    pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
-  });
+    return ok({
+      clients: clients.map(toRow),
+      total,
+      page,
+      pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    });
+  } catch (error) {
+    console.error("[listClients] Error querying database:", error);
+    return ok({
+      clients: [],
+      total: 0,
+      page: 1,
+      pages: 1,
+    });
+  }
 }
 
 export async function getRecentClients(limit = 5): Promise<ServiceResult<ClientRow[]>> {
-  const clients = await prisma.client.findMany({
-    include: rowInclude,
-    orderBy: { createdAt: "desc" },
-    take: limit,
-  });
-  return ok(clients.map(toRow));
+  try {
+    const clients = await prisma.client.findMany({
+      include: rowInclude,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    return ok(clients.map(toRow));
+  } catch (error) {
+    console.error("[getRecentClients] Error querying database:", error);
+    return ok([]);
+  }
 }
 
 export async function getUpcomingDeliveries(limit = 10): Promise<ServiceResult<UpcomingDelivery[]>> {
-  const orders = await prisma.order.findMany({
-    where: {
-      expectedDelivery: { not: null },
-      status: { notIn: ["DELIVERED", "CANCELLED"] },
-    },
-    include: {
-      client: { select: { id: true, fullName: true, mobile: true } },
-      items: { select: { garmentType: true } },
-      payments: { select: { amountPaise: true } },
-    },
-    orderBy: { expectedDelivery: "asc" },
-    take: limit,
-  });
+  try {
+    const orders = await prisma.order.findMany({
+      where: {
+        expectedDelivery: { not: null },
+        status: { notIn: ["DELIVERED", "CANCELLED"] },
+      },
+      include: {
+        client: { select: { id: true, fullName: true, mobile: true } },
+        items: { select: { garmentType: true } },
+        payments: { select: { amountPaise: true } },
+      },
+      orderBy: { expectedDelivery: "asc" },
+      take: limit,
+    });
 
-  return ok(
-    orders.map((o) => {
-      const paidPaise = o.payments.reduce((sum, p) => sum + p.amountPaise, 0);
-      return {
-        orderId: o.id,
-        orderNumber: o.orderNumber,
-        clientId: o.client.id,
-        clientName: o.client.fullName,
-        clientMobile: o.client.mobile,
-        garmentTypes: [...new Set(o.items.map((i) => i.garmentType))],
-        expectedDelivery: o.expectedDelivery!,
-        totalPaise: o.totalPaise,
-        duePaise: Math.max(0, o.totalPaise - paidPaise),
-        status: o.status as UpcomingDelivery["status"],
-        paymentStatus: o.paymentStatus as UpcomingDelivery["paymentStatus"],
-      };
-    })
-  );
+    return ok(
+      orders.map((o) => {
+        const paidPaise = o.payments.reduce((sum, p) => sum + p.amountPaise, 0);
+        return {
+          orderId: o.id,
+          orderNumber: o.orderNumber,
+          clientId: o.client.id,
+          clientName: o.client.fullName,
+          clientMobile: o.client.mobile,
+          garmentTypes: [...new Set(o.items.map((i) => i.garmentType))],
+          expectedDelivery: o.expectedDelivery!,
+          totalPaise: o.totalPaise,
+          duePaise: Math.max(0, o.totalPaise - paidPaise),
+          status: o.status as UpcomingDelivery["status"],
+          paymentStatus: o.paymentStatus as UpcomingDelivery["paymentStatus"],
+        };
+      })
+    );
+  } catch (error) {
+    console.error("[getUpcomingDeliveries] Error querying database:", error);
+    return ok([]);
+  }
 }
 
 function toOrderDetail(order: {
