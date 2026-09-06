@@ -9,6 +9,7 @@ import clientRoutes from "./routes/clients.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import orderRoutes from "./routes/orders.routes.js";
 import paymentRoutes from "./routes/payments.routes.js";
+import publicRoutes from "./routes/public.routes.js";
 
 const app = new Hono();
 
@@ -128,6 +129,7 @@ const ENDPOINTS_CATALOG = [
   { group: "Orders", method: "PATCH", path: "/api/orders/:id/revert-delivery", auth: true, desc: "Revert order status from delivered to in-progress" },
   { group: "Payments", method: "POST", path: "/api/payments/orders/:orderId", auth: true, desc: "Record a payment against an order (CASH, UPI, CARD, OTHER)" },
   { group: "Payments", method: "GET", path: "/api/payments/clients/:clientId", auth: true, desc: "Retrieve all payment transactions for a client" },
+  { group: "Public", method: "GET", path: "/api/public/clients/:id", auth: false, desc: "Public read-only client profile: name, measurements & order summary (no auth required)" },
 ];
 
 function renderDashboardHtml(baseUrl: string, uptime: number) {
@@ -437,6 +439,7 @@ app.route("/api/clients", clientRoutes);
 app.route("/api/dashboard", dashboardRoutes);
 app.route("/api/orders", orderRoutes);
 app.route("/api/payments", paymentRoutes);
+app.route("/api/public", publicRoutes);
 
 // ── 404 fallback ──────────────────────────────────────────────────────────────
 
