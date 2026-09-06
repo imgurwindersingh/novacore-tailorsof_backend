@@ -15,6 +15,24 @@ model User {
   role         String   @default("ADMIN")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+}
+
+/// Persisted refresh tokens — one row per active session.
+/// Revoked by deleting the row (logout) or by the expiredAt check.
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  /// Stored as a SHA-256 hex hash of the raw token so the DB never holds the raw secret.
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Client {

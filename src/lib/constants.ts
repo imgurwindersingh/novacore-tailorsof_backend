@@ -40,7 +40,14 @@ export const GARMENT_TYPES = [
 
 export const PAGE_SIZE = 10;
 
-export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 days
+/** Access token lifetime — 2 days. Short enough to limit exposure, long enough for normal use. */
+export const ACCESS_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 2; // 2 days
+
+/** Refresh token lifetime — 7 days. Kept server-side (hashed); client must re-login after this. */
+export const REFRESH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 days
+
+/** @deprecated Use ACCESS_TOKEN_MAX_AGE_SECONDS instead */
+export const SESSION_MAX_AGE_SECONDS = ACCESS_TOKEN_MAX_AGE_SECONDS;
 
 export const SHIRT_MEASUREMENT_LABELS: Record<string, string> = {
   chest: "Chest",
