@@ -122,6 +122,7 @@ const ENDPOINTS_CATALOG = [
   { group: "Clients", method: "POST", path: "/api/clients", auth: true, desc: "Create client wizard (profile + measurements + first order)" },
   { group: "Clients", method: "PUT", path: "/api/clients/:id", auth: true, desc: "Update client profile details and measurements" },
   { group: "Clients", method: "DELETE", path: "/api/clients/:id", auth: true, desc: "Delete client and associated measurement records" },
+  { group: "Clients", method: "POST", path: "/api/clients/:clientId/orders", auth: true, desc: "Add a new order to an existing client" },
   { group: "Dashboard", method: "GET", path: "/api/dashboard/stats", auth: true, desc: "Aggregate statistics: client count, active orders, revenue" },
   { group: "Dashboard", method: "GET", path: "/api/dashboard/recent-clients", auth: true, desc: "Fetch recently registered clients (?limit=5)" },
   { group: "Dashboard", method: "GET", path: "/api/dashboard/upcoming-deliveries", auth: true, desc: "Upcoming deliveries schedule (?limit=10)" },

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { rupeesToPaise } from "../lib/money.js";
-import { addClientWizardSchema, updateClientSchema, type AddClientWizardInput, type UpdateClientInput } from "../lib/validators/client.js";
+import { addClientWizardSchema, updateClientSchema, wizardOrderSchema, type AddClientWizardInput, type UpdateClientInput } from "../lib/validators/client.js";
 import { requireAuth, type AuthVariables } from "../middleware/auth.middleware.js";
 import {
   createClientWithOrder,
@@ -10,7 +10,8 @@ import {
   listClients,
   updateClient,
 } from "../services/clients.service.js";
-import type { CreateClientWithOrderDTO, MeasurementsDTO, UpdateClientDTO } from "../lib/types.js";
+import { createOrderForClient } from "../services/orders.service.js";
+import type { CreateClientWithOrderDTO, CreateOrderDTO, MeasurementsDTO, UpdateClientDTO } from "../lib/types.js";
 
 const clients = new Hono<{ Variables: AuthVariables }>();
 
@@ -154,6 +155,45 @@ clients.delete("/:id", async (c) => {
   const result = await deleteClient(id);
   if (!result.ok) return c.json({ error: result.error }, 404);
   return c.json(result.data);
+});
+
+/**
+ * POST /api/clients/:clientId/orders
+ * Add a new order to an existing client.
+ * Body: { items, expectedDelivery, advance, paymentMethod }
+ */
+clients.post("/:clientId/orders", async (c) => {
+  const clientId = c.req.param("clientId");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const parsed = wizardOrderSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: firstIssueMessage(parsed.error) }, 400);
+  }
+
+  const data = parsed.data;
+  const dto: CreateOrderDTO = {
+    items: data.items.map((i) => ({
+      garmentType: i.garmentType,
+      description: emptyToNull(i.description),
+      quantity: i.quantity,
+      unitPricePaise: rupeesToPaise(i.unitPrice),
+    })),
+    expectedDelivery: data.expectedDelivery || null,
+    advancePaise: rupeesToPaise(data.advance),
+    paymentMethod: data.paymentMethod === "" ? null : data.paymentMethod,
+  };
+
+  const result = await createOrderForClient(clientId, dto);
+  if (!result.ok) {
+    return c.json({ error: result.error }, result.error === "Client not found" ? 404 : 422);
+  }
+  return c.json(result.data, 201);
 });
 
 export default clients;

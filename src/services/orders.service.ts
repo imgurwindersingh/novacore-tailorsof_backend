@@ -1,6 +1,6 @@
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../lib/prisma.js";
-import { err, ok, type PaymentStatus, type ServiceResult } from "../lib/types.js";
+import { err, ok, type CreateOrderDTO, type PaymentStatus, type ServiceResult } from "../lib/types.js";
 
 export function paymentStatusFor(totalPaise: number, paidPaise: number): PaymentStatus {
   if (paidPaise <= 0) return "PENDING";
@@ -75,4 +75,66 @@ export async function revertOrderDelivery(
   });
 
   return ok({ orderId: order.id, clientId: order.clientId });
+}
+
+/**
+ * Creates a new order for an existing client.
+ * Validates the client exists, calculates totals, records an advance payment
+ * if provided, and returns the new order details.
+ */
+export async function createOrderForClient(
+  clientId: string,
+  dto: CreateOrderDTO
+): Promise<ServiceResult<{ orderId: string; orderNumber: string; clientId: string }>> {
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return err("Client not found");
+
+  const totalPaise = dto.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
+  if (totalPaise <= 0) return err("Order total must be greater than zero");
+  if (dto.advancePaise > totalPaise) return err("Advance cannot exceed the order total");
+  if (dto.advancePaise > 0 && !dto.paymentMethod) {
+    return err("Select a payment method for the advance");
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const orderNumber = await nextOrderNumberInTx(tx);
+
+      const order = await tx.order.create({
+        data: {
+          clientId,
+          orderNumber,
+          totalPaise,
+          paymentStatus: paymentStatusFor(totalPaise, dto.advancePaise),
+          expectedDelivery: dto.expectedDelivery ? new Date(dto.expectedDelivery) : null,
+          notes: dto.notes ?? null,
+          items: {
+            create: dto.items.map((i) => ({
+              garmentType: i.garmentType,
+              description: i.description,
+              quantity: i.quantity,
+              unitPricePaise: i.unitPricePaise,
+            })),
+          },
+        },
+      });
+
+      if (dto.advancePaise > 0 && dto.paymentMethod) {
+        await tx.payment.create({
+          data: {
+            orderId: order.id,
+            amountPaise: dto.advancePaise,
+            method: dto.paymentMethod,
+          },
+        });
+      }
+
+      return { orderId: order.id, orderNumber, clientId };
+    });
+
+    return ok(result);
+  } catch (e) {
+    console.error("[createOrderForClient]", e);
+    return err("Failed to create order");
+  }
 }
