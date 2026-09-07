@@ -30,7 +30,7 @@ export async function verifyPassword(password: string, passwordHash: string): Pr
  * Expires in ACCESS_TOKEN_MAX_AGE_SECONDS (2 days).
  */
 export async function createSessionToken(user: SessionUser): Promise<string> {
-  return new SignJWT({ email: user.email, name: user.name, role: user.role, shopId: user.shopId })
+  return new SignJWT({ email: user.email, name: user.name, role: user.role })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.id)
     .setIssuedAt()
@@ -50,7 +50,6 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
       typeof payload.email !== "string" ||
       typeof payload.name !== "string" ||
       typeof payload.role !== "string"
-      || typeof payload.shopId !== "string"
     ) {
       return null;
     }
@@ -59,7 +58,6 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
       email: payload.email,
       name: payload.name,
       role: payload.role as Role,
-      shopId: payload.shopId,
     };
   } catch {
     return null;

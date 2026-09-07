@@ -201,8 +201,6 @@ export function buildOpenApiSpec(serverUrl: string) {
               description: "Shirt, Kurta, Pant, Trouser, Sherwani, Blazer, Suit, Blouse, Other",
             },
             description: { type: "string" },
-            designImageUrl: { type: "string", format: "uri", nullable: true, description: "Optional uploaded design image URL (http/https)" },
-            designReferenceUrl: { type: "string", format: "uri", nullable: true, description: "Optional external design reference URL (http/https)" },
             quantity: { type: "integer", minimum: 1, example: 1 },
             unitPrice: { type: "number", description: "Rupees (not paise)", example: 1500 },
           },

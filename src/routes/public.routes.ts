@@ -39,6 +39,7 @@ publicRoutes.get("/clients/:id", async (c) => {
       paidPaise: order.paidPaise,
       duePaise: order.duePaise,
       expectedDelivery: order.expectedDelivery,
+      notes: order.notes,
       createdAt: order.createdAt,
       items: order.items,
       // Payments are intentionally excluded from the public view

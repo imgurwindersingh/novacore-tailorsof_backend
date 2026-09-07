@@ -2,19 +2,6 @@ import { z } from "zod";
 import { PAYMENT_METHODS, UNITS } from "../constants.js";
 import { measureField, mobileSchema } from "./common.js";
 
-/** Empty strings are accepted from forms and normalized to null by route DTOs. */
-const safeHttpUrl = z.union([
-  z.literal(""),
-  z.string().url("Enter a valid URL").refine(
-    (value) => {
-      const protocol = new URL(value).protocol;
-      return protocol === "https:" || protocol === "http:";
-    },
-    "Only http and https URLs are allowed"
-  ),
-  z.null(),
-]);
-
 export const clientProfileSchema = z.object({
   fullName: z.string().trim().min(2, "Name is required").max(100, "Max 100 characters"),
   mobile: mobileSchema,
@@ -59,8 +46,6 @@ export const orderItemSchema = z.object({
   description: z.string().trim().max(200, "Max 200 characters"),
   quantity: z.number().int("Whole numbers only").min(1, "At least 1").max(999, "Max 999"),
   unitPrice: z.number().positive("Enter a price greater than 0").max(10000000, "Too large"),
-  designImageUrl: safeHttpUrl.optional(),
-  designReferenceUrl: safeHttpUrl.optional(),
 });
 
 export const wizardOrderSchema = z

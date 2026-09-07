@@ -19,7 +19,6 @@ export interface SessionUser {
   email: string;
   name: string;
   role: Role;
-  shopId: string;
 }
 
 export interface MeasurementsDTO {
@@ -56,8 +55,6 @@ export interface ProfileDTO {
 export interface OrderItemDTO {
   garmentType: string;
   description: string | null;
-  designImageUrl: string | null;
-  designReferenceUrl: string | null;
   quantity: number;
   unitPricePaise: number;
 }
@@ -113,8 +110,6 @@ export interface OrderDetail {
     id: string;
     garmentType: string;
     description: string | null;
-    designImageUrl: string | null;
-    designReferenceUrl: string | null;
     quantity: number;
     unitPricePaise: number;
   }[];
