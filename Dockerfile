@@ -3,17 +3,17 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Install deps first (better layer caching).
-# Prisma 7 reads schema from prisma.config.ts during postinstall (`prisma generate`).
+# Install deps first (better layer caching). Skip lifecycle scripts so
+# `postinstall` (`prisma generate`) does not run before the schema is present.
 COPY package*.json ./
+RUN npm ci --ignore-scripts
+
+# Schema + config are required by Prisma 7 (`prisma.config.ts` points at prisma/schema.prisma).
 COPY prisma.config.ts ./
 COPY prisma ./prisma
-RUN npm ci
-
-# Copy source and compile TypeScript
 COPY . .
-RUN npm run build
 RUN npx prisma generate
+RUN npm run build
 
 # ── Runtime stage ───────────────────────────────────────────────────────────────
 FROM node:20-slim AS runner

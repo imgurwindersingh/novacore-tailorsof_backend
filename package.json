@@ -11,7 +11,10 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "deploy": "wrangler deploy",
-    "postinstall": "prisma generate"
+    "postinstall": "node -e \"require('fs').existsSync('prisma/schema.prisma') && require('child_process').execSync('prisma generate', {stdio:'inherit', env:process.env})\""
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
