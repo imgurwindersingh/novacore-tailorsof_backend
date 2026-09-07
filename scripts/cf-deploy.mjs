@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 const DB_NAME = "novacore-db";
 const BINDING = "DB";
 const WRANGLER_PATH = "wrangler.json";
+const INITIAL_SCHEMA = "prisma/migrations/20260906034131_add_refresh_token/migration.sql";
 
 function sh(cmd, inherit = false) {
   return execSync(cmd, {
@@ -23,6 +24,16 @@ function parseJsonPayload(raw, startChar) {
 function listDatabases() {
   const raw = sh("npx wrangler d1 list --json");
   return parseJsonPayload(raw, "[");
+}
+
+function hasClientTable() {
+  const raw = sh(
+    `npx wrangler d1 execute ${DB_NAME} --remote --command "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'Client';" --json`
+  );
+  const result = parseJsonPayload(raw, "[");
+  return result.some((statement) =>
+    statement.results?.some((row) => row.name === "Client")
+  );
 }
 
 let databases = listDatabases();
@@ -52,5 +63,10 @@ config.d1_databases = [
 ];
 writeFileSync(WRANGLER_PATH, `${JSON.stringify(config, null, 2)}\n`);
 console.log(`Using D1 ${DB_NAME} (${db.uuid})`);
+
+if (!hasClientTable()) {
+  console.log("D1 schema is not initialized. Applying the initial Prisma migration…");
+  sh(`npx wrangler d1 execute ${DB_NAME} --remote --file=${INITIAL_SCHEMA}`, true);
+}
 
 sh("npx wrangler deploy", true);
