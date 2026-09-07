@@ -186,12 +186,12 @@ function renderDashboardHtml(baseUrl: string, uptime: number) {
       ep.method === "GET"
         ? "background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);"
         : ep.method === "POST"
-        ? "background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);"
-        : ep.method === "PUT"
-        ? "background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);"
-        : ep.method === "PATCH"
-        ? "background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);"
-        : "background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);";
+          ? "background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);"
+          : ep.method === "PUT"
+            ? "background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);"
+            : ep.method === "PATCH"
+              ? "background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);"
+              : "background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);";
 
     const pathHtml = !ep.auth && ep.method === "GET"
       ? `<a href="${ep.path}" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 500;">${ep.path} ↗</a>`
@@ -519,14 +519,11 @@ app.onError((err, c) => {
 
 // ── Start server (Node.js runtime only) ───────────────────────────────────────
 
-const g = globalThis as unknown as {
-  navigator?: { userAgent?: string };
-  caches?: { default?: unknown };
-};
-
 const isCloudflareWorker =
-  Boolean(g.navigator?.userAgent?.includes("Cloudflare-Workers")) ||
-  Boolean(g.caches && "default" in g.caches);
+  (typeof globalThis !== "undefined" &&
+    typeof (globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent === "string" &&
+    (globalThis as { navigator?: { userAgent?: string } }).navigator.userAgent.includes("Cloudflare-Workers")) ||
+  (typeof caches !== "undefined" && "default" in caches);
 
 const isNodeRuntime = !isCloudflareWorker && typeof process !== "undefined" && Boolean(process.versions?.node);
 
