@@ -519,11 +519,14 @@ app.onError((err, c) => {
 
 // ── Start server (Node.js runtime only) ───────────────────────────────────────
 
+const g = globalThis as unknown as {
+  navigator?: { userAgent?: string };
+  caches?: { default?: unknown };
+};
+
 const isCloudflareWorker =
-  (typeof globalThis !== "undefined" &&
-    typeof (globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent === "string" &&
-    (globalThis as { navigator?: { userAgent?: string } }).navigator.userAgent.includes("Cloudflare-Workers")) ||
-  (typeof caches !== "undefined" && "default" in caches);
+  Boolean(g.navigator?.userAgent?.includes("Cloudflare-Workers")) ||
+  Boolean(g.caches && "default" in g.caches);
 
 const isNodeRuntime = !isCloudflareWorker && typeof process !== "undefined" && Boolean(process.versions?.node);
 
