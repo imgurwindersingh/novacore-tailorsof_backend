@@ -498,7 +498,7 @@ const isNodeRuntime =
   (typeof (globalThis as unknown as { navigator?: { userAgent?: string } }).navigator === "undefined" ||
     (globalThis as unknown as { navigator?: { userAgent?: string } }).navigator?.userAgent !== "Cloudflare-Workers");
 
-if (isNodeRuntime) {
+async function startNodeServer() {
   const [{ serve }, { PrismaBetterSqlite3 }] = await Promise.all([
     import("@hono/node-server"),
     import("@prisma/adapter-better-sqlite3"),
@@ -519,8 +519,12 @@ if (isNodeRuntime) {
   });
 }
 
+if (isNodeRuntime) {
+  void startNodeServer();
+}
+
 export default {
-  fetch(request: Request, env: Bindings, ctx: unknown) {
+  fetch(request: Request, env: Bindings, ctx?: Parameters<typeof app.fetch>[2]) {
     if (env?.DB) ensureD1Prisma(env.DB);
     return app.fetch(request, env, ctx);
   },
