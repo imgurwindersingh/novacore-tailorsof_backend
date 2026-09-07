@@ -8,7 +8,7 @@ export function paymentStatusFor(totalPaise: number, paidPaise: number): Payment
   return "PARTIAL";
 }
 
-export async function nextOrderNumberInTx(tx: Prisma.TransactionClient): Promise<string> {
+export async function nextOrderNumberInTx(tx: Prisma.TransactionClient | typeof prisma = prisma): Promise<string> {
   const count = await tx.order.count();
   let n = count + 1;
   let orderNumber = `ORD-${String(n).padStart(4, "0")}`;
@@ -20,7 +20,7 @@ export async function nextOrderNumberInTx(tx: Prisma.TransactionClient): Promise
 }
 
 export async function recomputeOrderTotalsInTx(
-  tx: Prisma.TransactionClient,
+  tx: Prisma.TransactionClient | typeof prisma = prisma,
   orderId: string
 ): Promise<{ totalPaise: number; paidPaise: number }> {
   const order = await tx.order.findUniqueOrThrow({
@@ -97,42 +97,38 @@ export async function createOrderForClient(
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const orderNumber = await nextOrderNumberInTx(tx);
+    const orderNumber = await nextOrderNumberInTx(prisma);
 
-      const order = await tx.order.create({
-        data: {
-          clientId,
-          orderNumber,
-          totalPaise,
-          paymentStatus: paymentStatusFor(totalPaise, dto.advancePaise),
-          expectedDelivery: dto.expectedDelivery ? new Date(dto.expectedDelivery) : null,
-          notes: dto.notes ?? null,
-          items: {
-            create: dto.items.map((i) => ({
-              garmentType: i.garmentType,
-              description: i.description,
-              quantity: i.quantity,
-              unitPricePaise: i.unitPricePaise,
-            })),
-          },
+    const order = await prisma.order.create({
+      data: {
+        clientId,
+        orderNumber,
+        totalPaise,
+        paymentStatus: paymentStatusFor(totalPaise, dto.advancePaise),
+        expectedDelivery: dto.expectedDelivery ? new Date(dto.expectedDelivery) : null,
+        notes: dto.notes ?? null,
+        items: {
+          create: dto.items.map((i) => ({
+            garmentType: i.garmentType,
+            description: i.description,
+            quantity: i.quantity,
+            unitPricePaise: i.unitPricePaise,
+          })),
         },
-      });
-
-      if (dto.advancePaise > 0 && dto.paymentMethod) {
-        await tx.payment.create({
-          data: {
-            orderId: order.id,
-            amountPaise: dto.advancePaise,
-            method: dto.paymentMethod,
-          },
-        });
-      }
-
-      return { orderId: order.id, orderNumber, clientId };
+        ...(dto.advancePaise > 0 && dto.paymentMethod
+          ? {
+              payments: {
+                create: {
+                  amountPaise: dto.advancePaise,
+                  method: dto.paymentMethod,
+                },
+              },
+            }
+          : {}),
+      },
     });
 
-    return ok(result);
+    return ok({ orderId: order.id, orderNumber, clientId });
   } catch (e) {
     console.error("[createOrderForClient]", e);
     return err("Failed to create order");

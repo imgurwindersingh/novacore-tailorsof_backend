@@ -511,7 +511,7 @@ app.onError((err, c) => {
   return c.json(
     {
       error: "Internal server error",
-      message: err.message,
+      message: err instanceof Error ? err.message : String(err),
     },
     500
   );
@@ -519,12 +519,13 @@ app.onError((err, c) => {
 
 // ── Start server (Node.js runtime only) ───────────────────────────────────────
 
-const isNodeRuntime =
-  typeof process !== "undefined" &&
-  Boolean(process.versions?.node) &&
-  typeof (globalThis as unknown as { WebSocketPair?: unknown }).WebSocketPair === "undefined" &&
-  (typeof (globalThis as unknown as { navigator?: { userAgent?: string } }).navigator === "undefined" ||
-    (globalThis as unknown as { navigator?: { userAgent?: string } }).navigator?.userAgent !== "Cloudflare-Workers");
+const isCloudflareWorker =
+  (typeof globalThis !== "undefined" &&
+    typeof (globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent === "string" &&
+    (globalThis as { navigator?: { userAgent?: string } }).navigator.userAgent.includes("Cloudflare-Workers")) ||
+  (typeof caches !== "undefined" && "default" in caches);
+
+const isNodeRuntime = !isCloudflareWorker && typeof process !== "undefined" && Boolean(process.versions?.node);
 
 async function startNodeServer() {
   const [{ serve }, { PrismaBetterSqlite3 }] = await Promise.all([
@@ -552,7 +553,7 @@ if (isNodeRuntime) {
 }
 
 export default {
-  fetch(request: Request, env: Bindings, ctx?: Parameters<typeof app.fetch>[2]) {
+  async fetch(request: Request, env: Bindings, ctx?: Parameters<typeof app.fetch>[2]) {
     if (env?.DB) ensureD1Prisma(env.DB);
     return app.fetch(request, env, ctx);
   },

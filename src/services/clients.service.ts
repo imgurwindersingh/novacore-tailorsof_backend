@@ -251,55 +251,81 @@ export async function createClientWithOrder(
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const client = await tx.client.create({
-        data: {
-          fullName: dto.profile.fullName,
-          mobile: dto.profile.mobile,
-          fatherOrHusband: dto.profile.fatherOrHusband,
-          email: dto.profile.email,
-          address: dto.profile.address,
-          notes: dto.profile.notes,
-        },
-      });
+    const orderNumber = await nextOrderNumberInTx(prisma);
 
-      if (dto.measurements && hasAnyMeasurement(dto.measurements)) {
-        await upsertMeasurementsInTx(tx, client.id, dto.measurements);
-      }
-
-      const orderNumber = await nextOrderNumberInTx(tx);
-      const order = await tx.order.create({
-        data: {
-          clientId: client.id,
-          orderNumber,
-          totalPaise,
-          paymentStatus: paymentStatusFor(totalPaise, dto.order.advancePaise),
-          expectedDelivery: dto.order.expectedDelivery ? new Date(dto.order.expectedDelivery) : null,
-          notes: dto.order.notes ?? null,
-          items: {
-            create: dto.order.items.map((i) => ({
-              garmentType: i.garmentType,
-              description: i.description,
-              quantity: i.quantity,
-              unitPricePaise: i.unitPricePaise,
-            })),
+    const client = await prisma.client.create({
+      data: {
+        fullName: dto.profile.fullName,
+        mobile: dto.profile.mobile,
+        fatherOrHusband: dto.profile.fatherOrHusband,
+        email: dto.profile.email,
+        address: dto.profile.address,
+        notes: dto.profile.notes,
+        ...(dto.measurements && hasAnyMeasurement(dto.measurements)
+          ? {
+              generalMeasurement: {
+                create: { unit: dto.measurements.unit, height: dto.measurements.general.height ?? null },
+              },
+              shirtMeasurement: {
+                create: {
+                  unit: dto.measurements.unit,
+                  chest: dto.measurements.shirt.chest ?? null,
+                  waist: dto.measurements.shirt.waist ?? null,
+                  shoulderWidth: dto.measurements.shirt.shoulderWidth ?? null,
+                  sleeveLength: dto.measurements.shirt.sleeveLength ?? null,
+                  shirtLength: dto.measurements.shirt.shirtLength ?? null,
+                  neck: dto.measurements.shirt.neck ?? null,
+                  cuff: dto.measurements.shirt.cuff ?? null,
+                },
+              },
+              pantMeasurement: {
+                create: {
+                  unit: dto.measurements.unit,
+                  waist: dto.measurements.pant.waist ?? null,
+                  hip: dto.measurements.pant.hip ?? null,
+                  thigh: dto.measurements.pant.thigh ?? null,
+                  knee: dto.measurements.pant.knee ?? null,
+                  bottomOpening: dto.measurements.pant.bottomOpening ?? null,
+                  inseam: dto.measurements.pant.inseam ?? null,
+                },
+              },
+            }
+          : {}),
+        orders: {
+          create: {
+            orderNumber,
+            totalPaise,
+            paymentStatus: paymentStatusFor(totalPaise, dto.order.advancePaise),
+            expectedDelivery: dto.order.expectedDelivery ? new Date(dto.order.expectedDelivery) : null,
+            notes: dto.order.notes ?? null,
+            items: {
+              create: dto.order.items.map((i) => ({
+                garmentType: i.garmentType,
+                description: i.description,
+                quantity: i.quantity,
+                unitPricePaise: i.unitPricePaise,
+              })),
+            },
+            ...(dto.order.advancePaise > 0 && dto.order.paymentMethod
+              ? {
+                  payments: {
+                    create: {
+                      amountPaise: dto.order.advancePaise,
+                      method: dto.order.paymentMethod,
+                    },
+                  },
+                }
+              : {}),
           },
         },
-      });
-
-      if (dto.order.advancePaise > 0 && dto.order.paymentMethod) {
-        await tx.payment.create({
-          data: {
-            orderId: order.id,
-            amountPaise: dto.order.advancePaise,
-            method: dto.order.paymentMethod,
-          },
-        });
-      }
-
-      return { clientId: client.id, orderId: order.id, orderNumber };
+      },
+      include: {
+        orders: { select: { id: true, orderNumber: true } },
+      },
     });
-    return ok(result);
+
+    const createdOrder = client.orders[0];
+    return ok({ clientId: client.id, orderId: createdOrder.id, orderNumber: createdOrder.orderNumber });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return err("A client with this mobile number already exists");
@@ -320,22 +346,21 @@ export async function updateClient(
     if (clash) return err("A client with this mobile number already exists");
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.client.update({
-      where: { id },
-      data: {
-        fullName: dto.profile.fullName,
-        mobile: dto.profile.mobile,
-        fatherOrHusband: dto.profile.fatherOrHusband,
-        email: dto.profile.email,
-        address: dto.profile.address,
-        notes: dto.profile.notes,
-      },
-    });
-    if (dto.measurements) {
-      await upsertMeasurementsInTx(tx, id, dto.measurements);
-    }
+  await prisma.client.update({
+    where: { id },
+    data: {
+      fullName: dto.profile.fullName,
+      mobile: dto.profile.mobile,
+      fatherOrHusband: dto.profile.fatherOrHusband,
+      email: dto.profile.email,
+      address: dto.profile.address,
+      notes: dto.profile.notes,
+    },
   });
+
+  if (dto.measurements) {
+    await upsertMeasurementsInTx(prisma, id, dto.measurements);
+  }
 
   return ok({ clientId: id });
 }

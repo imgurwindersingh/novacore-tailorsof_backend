@@ -1,4 +1,5 @@
 import type { Prisma } from "../lib/prisma-client.js";
+import { prisma } from "../lib/prisma.js";
 import type { MeasurementsDTO } from "../lib/types.js";
 
 export function hasAnyMeasurement(m: MeasurementsDTO): boolean {
@@ -10,7 +11,7 @@ export function hasAnyMeasurement(m: MeasurementsDTO): boolean {
 }
 
 export async function upsertMeasurementsInTx(
-  tx: Prisma.TransactionClient,
+  tx: Prisma.TransactionClient | typeof prisma = prisma,
   clientId: string,
   m: MeasurementsDTO
 ): Promise<void> {

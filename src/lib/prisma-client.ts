@@ -1,2 +1,2 @@
-/** Node / Snapdeploy Prisma Client (query compiler for nodejs). */
-export { Prisma, PrismaClient } from "../generated/prisma/client.js";
+/** Prisma Client (WASM / Cloudflare & Driver Adapters). */
+export { Prisma, PrismaClient } from "../generated/prisma-cf/client.js";

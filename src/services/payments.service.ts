@@ -6,34 +6,32 @@ export async function recordPayment(
   orderId: string,
   dto: { amountPaise: number; method: PaymentMethod; note: string | null }
 ): Promise<ServiceResult<{ paymentId: string; clientId: string; duePaise: number }>> {
-  return prisma.$transaction(async (tx) => {
-    const order = await tx.order.findUnique({
-      where: { id: orderId },
-      include: { payments: { select: { amountPaise: true } } },
-    });
-    if (!order) return err("Order not found");
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { payments: { select: { amountPaise: true } } },
+  });
+  if (!order) return err("Order not found");
 
-    const paidPaise = order.payments.reduce((sum, p) => sum + p.amountPaise, 0);
-    const duePaise = Math.max(0, order.totalPaise - paidPaise);
-    if (dto.amountPaise > duePaise) {
-      return err("Payment exceeds the due amount for this order");
-    }
+  const paidPaise = order.payments.reduce((sum, p) => sum + p.amountPaise, 0);
+  const duePaise = Math.max(0, order.totalPaise - paidPaise);
+  if (dto.amountPaise > duePaise) {
+    return err("Payment exceeds the due amount for this order");
+  }
 
-    const payment = await tx.payment.create({
-      data: {
-        orderId,
-        amountPaise: dto.amountPaise,
-        method: dto.method,
-        note: dto.note,
-      },
-    });
-    await recomputeOrderTotalsInTx(tx, orderId);
+  const payment = await prisma.payment.create({
+    data: {
+      orderId,
+      amountPaise: dto.amountPaise,
+      method: dto.method,
+      note: dto.note,
+    },
+  });
+  await recomputeOrderTotalsInTx(prisma, orderId);
 
-    return ok({
-      paymentId: payment.id,
-      clientId: order.clientId,
-      duePaise: duePaise - dto.amountPaise,
-    });
+  return ok({
+    paymentId: payment.id,
+    clientId: order.clientId,
+    duePaise: duePaise - dto.amountPaise,
   });
 }
 
