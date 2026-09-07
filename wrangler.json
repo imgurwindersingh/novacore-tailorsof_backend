@@ -8,5 +8,20 @@
   ],
   "define": {
     "import.meta.url": "\"file:///worker.js\""
-  }
+  },
+  "alias": {
+    "@prisma/adapter-better-sqlite3": "./src/lib/workers-sqlite-stub.ts",
+    "better-sqlite3": "./src/lib/workers-sqlite-stub.ts"
+  },
+  "vars": {
+    "FRONTEND_URL": "https://novacore-tailorsof-frontend.gora55039.workers.dev",
+    "BACKEND_URL": "https://novacore-tailorsof-backend.gora55039.workers.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "novacore-db",
+      "database_id": "9d5c7d2f-e51d-4653-aaaa-c15e8bac05df"
+    }
+  ]
 }

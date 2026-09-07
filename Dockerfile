@@ -3,8 +3,11 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Install deps first (better layer caching)
+# Install deps first (better layer caching).
+# Prisma 7 reads schema from prisma.config.ts during postinstall (`prisma generate`).
 COPY package*.json ./
+COPY prisma.config.ts ./
+COPY prisma ./prisma
 RUN npm ci
 
 # Copy source and compile TypeScript
@@ -28,6 +31,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src/generated ./src/generated
 

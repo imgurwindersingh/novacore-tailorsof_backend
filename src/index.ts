@@ -1,9 +1,8 @@
-import "dotenv/config";
-import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { prisma } from "./lib/prisma.js";
+import { PrismaClient } from "./generated/prisma/client.js";
+import { ensureD1Prisma, prisma, setPrisma } from "./lib/prisma.js";
 import authRoutes from "./routes/auth.routes.js";
 import clientRoutes from "./routes/clients.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
@@ -11,12 +10,24 @@ import orderRoutes from "./routes/orders.routes.js";
 import paymentRoutes from "./routes/payments.routes.js";
 import publicRoutes from "./routes/public.routes.js";
 
-const app = new Hono();
+type Bindings = {
+  DB?: ConstructorParameters<typeof import("@prisma/adapter-d1").PrismaD1>[0];
+};
+
+const app = new Hono<{ Bindings: Bindings }>();
+
+// D1 is the production database on Cloudflare Workers. Never load better-sqlite3 there —
+// that native adapter references Node's `__filename` and crashes ESM/Workers.
+app.use("*", async (c, next) => {
+  if (c.env?.DB) ensureD1Prisma(c.env.DB);
+  await next();
+});
 
 // ── Global middleware ──────────────────────────────────────────────────────────
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  "https://novacore-tailorsof-frontend.gora55039.workers.dev",
   "http://localhost:3000",
   "http://localhost:5173",
   "http://localhost:8080",
@@ -70,12 +81,14 @@ app.get("/favicon.ico", (c) => {
 async function getHealthStatus() {
   let dbStatus = "connected";
   let dbLatencyMs = 0;
+  let dbError: string | undefined;
   try {
     const start = performance.now();
-    await prisma.$queryRawUnsafe("SELECT 1");
+    await prisma.user.count();
     dbLatencyMs = Math.round(performance.now() - start);
   } catch (err) {
     dbStatus = "disconnected";
+    dbError = err instanceof Error ? err.message : String(err);
     console.error("[health] Database ping failed:", err);
   }
 
@@ -88,6 +101,7 @@ async function getHealthStatus() {
     database: {
       status: dbStatus,
       latencyMs: dbLatencyMs,
+      ...(dbError ? { error: dbError } : {}),
     },
     system: {
       nodeVersion: process.version,
@@ -100,7 +114,13 @@ async function getHealthStatus() {
 
 app.get("/health", async (c) => {
   const health = await getHealthStatus();
-  return c.json(health, health.status === "ok" ? 200 : 503);
+  return c.json(
+    {
+      ...health,
+      hasD1: Boolean(c.env?.DB),
+    },
+    health.status === "ok" ? 200 : 503
+  );
 });
 
 app.get("/api/health", async (c) => {
@@ -479,10 +499,29 @@ const isNodeRuntime =
     (globalThis as unknown as { navigator?: { userAgent?: string } }).navigator?.userAgent !== "Cloudflare-Workers");
 
 if (isNodeRuntime) {
+  const [{ serve }, { PrismaBetterSqlite3 }] = await Promise.all([
+    import("@hono/node-server"),
+    import("@prisma/adapter-better-sqlite3"),
+  ]);
+  await import("dotenv/config");
+
+  setPrisma(
+    new PrismaClient({
+      adapter: new PrismaBetterSqlite3({
+        url: process.env.DATABASE_URL ?? "file:./dev.db",
+      }),
+    })
+  );
+
   const port = Number(process.env.PORT ?? 3001);
   serve({ fetch: app.fetch, port }, (info) => {
     console.log(`🚀 Backend running on http://localhost:${info.port}`);
   });
 }
 
-export default app;
+export default {
+  fetch(request: Request, env: Bindings, ctx: unknown) {
+    if (env?.DB) ensureD1Prisma(env.DB);
+    return app.fetch(request, env, ctx);
+  },
+};
