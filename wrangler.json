@@ -11,7 +11,8 @@
   },
   "alias": {
     "@prisma/adapter-better-sqlite3": "./src/lib/workers-sqlite-stub.ts",
-    "better-sqlite3": "./src/lib/workers-sqlite-stub.ts"
+    "better-sqlite3": "./src/lib/workers-sqlite-stub.ts",
+    "./src/lib/prisma-client.ts": "./src/lib/prisma-client.workers.ts"
   },
   "vars": {
     "FRONTEND_URL": "https://novacore-tailorsof-frontend.gora55039.workers.dev",

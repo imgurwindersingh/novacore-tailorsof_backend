@@ -1,4 +1,4 @@
-import type { Prisma } from "../generated/prisma/client.js";
+import type { Prisma } from "../lib/prisma-client.js";
 import type { MeasurementsDTO } from "../lib/types.js";
 
 export function hasAnyMeasurement(m: MeasurementsDTO): boolean {

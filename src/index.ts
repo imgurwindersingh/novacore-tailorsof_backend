@@ -1,7 +1,8 @@
+import "./lib/cjs-globals.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { PrismaClient } from "./generated/prisma/client.js";
+import { PrismaClient } from "./lib/prisma-client.js";
 import { ensureD1Prisma, prisma, setPrisma } from "./lib/prisma.js";
 import authRoutes from "./routes/auth.routes.js";
 import clientRoutes from "./routes/clients.routes.js";
@@ -9,6 +10,7 @@ import dashboardRoutes from "./routes/dashboard.routes.js";
 import orderRoutes from "./routes/orders.routes.js";
 import paymentRoutes from "./routes/payments.routes.js";
 import publicRoutes from "./routes/public.routes.js";
+import { buildOpenApiSpec, renderSwaggerHtml } from "./lib/openapi.js";
 
 type Bindings = {
   DB?: ConstructorParameters<typeof import("@prisma/adapter-d1").PrismaD1>[0];
@@ -25,8 +27,11 @@ app.use("*", async (c, next) => {
 
 // ── Global middleware ──────────────────────────────────────────────────────────
 
+const SNAPDEPLOY_BACKEND = "https://tailorsof-dac06.containers.snapdeploy.app";
+
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  SNAPDEPLOY_BACKEND,
   "https://novacore-tailorsof-frontend.gora55039.workers.dev",
   "http://localhost:3000",
   "http://localhost:5173",
@@ -36,16 +41,24 @@ const allowedOrigins = [
   "http://127.0.0.1:5173",
 ].filter(Boolean) as string[];
 
+function corsOrigin(origin: string): string {
+  if (!origin) return allowedOrigins[0] ?? "http://localhost:3000";
+  if (
+    allowedOrigins.includes(origin) ||
+    origin.startsWith("http://localhost:") ||
+    origin.startsWith("http://127.0.0.1:") ||
+    origin.endsWith(".workers.dev") ||
+    origin.endsWith(".snapdeploy.app")
+  ) {
+    return origin;
+  }
+  return origin;
+}
+
 app.use(
   "/*",
   cors({
-    origin: (origin) => {
-      if (!origin) return allowedOrigins[0] ?? "http://localhost:3000";
-      if (allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
-        return origin;
-      }
-      return allowedOrigins[0] ?? "http://localhost:3000";
-    },
+    origin: corsOrigin,
     allowHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
@@ -123,6 +136,18 @@ app.get("/health", async (c) => {
   );
 });
 
+app.get("/openapi.json", (c) => {
+  const requestUrl = new URL(c.req.url);
+  const serverUrl = process.env.BACKEND_URL || requestUrl.origin;
+  return c.json(buildOpenApiSpec(serverUrl));
+});
+
+app.get("/docs", (c) => {
+  return c.html(renderSwaggerHtml("/openapi.json"));
+});
+
+app.get("/swagger", (c) => c.redirect("/docs"));
+
 app.get("/api/health", async (c) => {
   const health = await getHealthStatus();
   return c.json(health, health.status === "ok" ? 200 : 503);
@@ -131,6 +156,8 @@ app.get("/api/health", async (c) => {
 // ── Root Endpoint (/ and /api) ────────────────────────────────────────────────
 
 const ENDPOINTS_CATALOG = [
+  { group: "System", method: "GET", path: "/docs", auth: false, desc: "Swagger UI — try endpoints with JWT Authorize" },
+  { group: "System", method: "GET", path: "/openapi.json", auth: false, desc: "OpenAPI 3 specification" },
   { group: "System", method: "GET", path: "/health", auth: false, desc: "Server and SQLite health status & metrics" },
   { group: "Auth", method: "POST", path: "/api/auth/login", auth: false, desc: "Authenticate with email & password, returns JWT session token" },
   { group: "Auth", method: "GET", path: "/api/auth/me", auth: true, desc: "Get current authenticated user profile" },
@@ -385,6 +412,7 @@ function renderDashboardHtml(baseUrl: string, uptime: number) {
     <div class="card">
       <div class="card-title">
         <span>Available API Routes</span>
+        <a href="/docs" class="quick-btn">Open Swagger UI ↗</a>
         <a href="/health" class="quick-btn">Check Health JSON ↗</a>
       </div>
       <div class="table-wrap">
@@ -434,7 +462,7 @@ app.get("/", (c) => {
     version: "1.0.0",
     status: "online",
     url: baseUrl,
-    productionUrl: "https://novacore-tailorsof-backend.gora55039.workers.dev",
+    productionUrl: process.env.BACKEND_URL || SNAPDEPLOY_BACKEND,
     environment: process.env.NODE_ENV ?? "development",
     uptimeSeconds: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
@@ -520,7 +548,7 @@ async function startNodeServer() {
 }
 
 if (isNodeRuntime) {
-  void startNodeServer();
+  await startNodeServer();
 }
 
 export default {

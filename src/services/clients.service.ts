@@ -1,4 +1,4 @@
-import { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../lib/prisma-client.js";
 import { PAGE_SIZE } from "../lib/constants.js";
 import { prisma } from "../lib/prisma.js";
 import {

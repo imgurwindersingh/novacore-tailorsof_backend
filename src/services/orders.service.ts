@@ -1,4 +1,4 @@
-import type { Prisma } from "../generated/prisma/client.js";
+import type { Prisma } from "../lib/prisma-client.js";
 import { prisma } from "../lib/prisma.js";
 import { err, ok, type CreateOrderDTO, type PaymentStatus, type ServiceResult } from "../lib/types.js";
 

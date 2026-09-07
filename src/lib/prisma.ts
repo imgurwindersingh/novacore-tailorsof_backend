@@ -1,5 +1,6 @@
+import "./cjs-globals.js";
 import { PrismaD1 } from "@prisma/adapter-d1";
-import { PrismaClient } from "../generated/prisma/client.js";
+import { PrismaClient } from "./prisma-client.js";
 
 type D1Binding = ConstructorParameters<typeof PrismaD1>[0];
 
