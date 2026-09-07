@@ -20,6 +20,7 @@ model User {
   passwordHash String
   name         String
   role         String   @default("ADMIN")
+  shopId       String   @default("default")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -50,6 +51,7 @@ model Client {
   email           String?
   address         String?
   notes           String?
+  shopId          String   @default("default")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -132,6 +134,8 @@ model OrderItem {
   orderId        String
   garmentType    String
   description    String?
+  designImageUrl String?
+  designReferenceUrl String?
   quantity       Int     @default(1)
   unitPricePaise Int
 

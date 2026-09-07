@@ -19,12 +19,13 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: { passwordHash, name: adminName, role: "ADMIN" },
+    update: { passwordHash, name: adminName, role: "ADMIN", shopId: process.env.DEFAULT_SHOP_ID ?? "default" },
     create: {
       email: adminEmail,
       name: adminName,
       passwordHash,
       role: "ADMIN",
+      shopId: process.env.DEFAULT_SHOP_ID ?? "default",
     },
   });
   console.log(`✅ Admin user configured: ${admin.email}`);

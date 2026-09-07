@@ -10,6 +10,7 @@ import dashboardRoutes from "./routes/dashboard.routes.js";
 import orderRoutes from "./routes/orders.routes.js";
 import paymentRoutes from "./routes/payments.routes.js";
 import publicRoutes from "./routes/public.routes.js";
+import uploadRoutes from "./routes/uploads.routes.js";
 import { buildOpenApiSpec, renderSwaggerHtml } from "./lib/openapi.js";
 
 type Bindings = {
@@ -489,6 +490,7 @@ app.route("/api/dashboard", dashboardRoutes);
 app.route("/api/orders", orderRoutes);
 app.route("/api/payments", paymentRoutes);
 app.route("/api/public", publicRoutes);
+app.route("/api/uploads", uploadRoutes);
 
 // ── 404 fallback ──────────────────────────────────────────────────────────────
 

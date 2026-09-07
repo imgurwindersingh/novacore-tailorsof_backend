@@ -56,6 +56,7 @@ const rowInclude = {
 export async function listClients(args: {
   q?: string;
   page?: number;
+  shopId?: string;
 }): Promise<ServiceResult<ClientListResult>> {
   try {
     const page = Math.max(1, args.page ?? 1);
@@ -69,6 +70,7 @@ export async function listClients(args: {
           ],
         }
       : {};
+    if (args.shopId) where.shopId = args.shopId;
 
     const [total, clients] = await prisma.$transaction([
       prisma.client.count({ where }),
@@ -161,7 +163,15 @@ function toOrderDetail(order: {
   expectedDelivery: Date | null;
   notes: string | null;
   createdAt: Date;
-  items: { id: string; garmentType: string; description: string | null; quantity: number; unitPricePaise: number }[];
+  items: {
+    id: string;
+    garmentType: string;
+    description: string | null;
+    designImageUrl: string | null;
+    designReferenceUrl: string | null;
+    quantity: number;
+    unitPricePaise: number;
+  }[];
   payments: { id: string; amountPaise: number; method: string; note: string | null; paidAt: Date }[];
 }): OrderDetail {
   const paidPaise = order.payments.reduce((sum, p) => sum + p.amountPaise, 0);
@@ -181,7 +191,7 @@ function toOrderDetail(order: {
   };
 }
 
-export async function getClientDetail(id: string): Promise<ServiceResult<ClientDetail>> {
+export async function getClientDetail(id: string, shopId?: string): Promise<ServiceResult<ClientDetail>> {
   const client = await prisma.client.findUnique({
     where: { id },
     include: {
@@ -197,7 +207,7 @@ export async function getClientDetail(id: string): Promise<ServiceResult<ClientD
       },
     },
   });
-  if (!client) return err("Client not found");
+  if (!client || (shopId && client.shopId !== shopId)) return err("Client not found");
 
   return ok({
     id: client.id,
@@ -239,7 +249,8 @@ export async function getClientDetail(id: string): Promise<ServiceResult<ClientD
 }
 
 export async function createClientWithOrder(
-  dto: CreateClientWithOrderDTO
+  dto: CreateClientWithOrderDTO,
+  shopId = process.env.DEFAULT_SHOP_ID ?? "default"
 ): Promise<ServiceResult<{ clientId: string; orderId: string; orderNumber: string }>> {
   const existing = await prisma.client.findUnique({ where: { mobile: dto.profile.mobile } });
   if (existing) return err("A client with this mobile number already exists");
@@ -261,6 +272,7 @@ export async function createClientWithOrder(
         email: dto.profile.email,
         address: dto.profile.address,
         notes: dto.profile.notes,
+        shopId,
         ...(dto.measurements && hasAnyMeasurement(dto.measurements)
           ? {
               generalMeasurement: {
@@ -302,6 +314,8 @@ export async function createClientWithOrder(
               create: dto.order.items.map((i) => ({
                 garmentType: i.garmentType,
                 description: i.description,
+                designImageUrl: i.designImageUrl,
+                designReferenceUrl: i.designReferenceUrl,
                 quantity: i.quantity,
                 unitPricePaise: i.unitPricePaise,
               })),
@@ -336,9 +350,10 @@ export async function createClientWithOrder(
 
 export async function updateClient(
   id: string,
-  dto: UpdateClientDTO
+  dto: UpdateClientDTO,
+  shopId = process.env.DEFAULT_SHOP_ID ?? "default"
 ): Promise<ServiceResult<{ clientId: string }>> {
-  const existing = await prisma.client.findUnique({ where: { id } });
+  const existing = await prisma.client.findFirst({ where: { id, shopId } });
   if (!existing) return err("Client not found");
 
   if (dto.profile.mobile !== existing.mobile) {
@@ -365,8 +380,8 @@ export async function updateClient(
   return ok({ clientId: id });
 }
 
-export async function deleteClient(id: string): Promise<ServiceResult<{ clientId: string }>> {
-  const existing = await prisma.client.findUnique({ where: { id } });
+export async function deleteClient(id: string, shopId = process.env.DEFAULT_SHOP_ID ?? "default"): Promise<ServiceResult<{ clientId: string }>> {
+  const existing = await prisma.client.findFirst({ where: { id, shopId } });
   if (!existing) return err("Client not found");
   await prisma.client.delete({ where: { id } });
   return ok({ clientId: id });

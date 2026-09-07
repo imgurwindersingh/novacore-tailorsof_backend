@@ -31,7 +31,7 @@ export interface RefreshResult {
 async function getUserById(id: string): Promise<SessionUser | null> {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return null;
-  return { id: user.id, email: user.email, name: user.name, role: user.role as Role };
+  return { id: user.id, email: user.email, name: user.name, role: user.role as Role, shopId: user.shopId };
 }
 
 /**
@@ -67,7 +67,7 @@ export async function login(
     if (user) {
       const valid = await verifyPassword(password, user.passwordHash);
       if (valid) {
-        sessionUser = { id: user.id, email: user.email, name: user.name, role: user.role as Role };
+        sessionUser = { id: user.id, email: user.email, name: user.name, role: user.role as Role, shopId: user.shopId };
         isDbUser = true;
       }
     }
@@ -85,6 +85,7 @@ export async function login(
         email: adminEmail,
         name: process.env.ADMIN_NAME ?? "Unique Tailors",
         role: "ADMIN" as Role,
+        shopId: process.env.DEFAULT_SHOP_ID ?? "default",
       };
       isDbUser = false;
     }

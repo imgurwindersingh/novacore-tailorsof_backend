@@ -84,9 +84,10 @@ export async function revertOrderDelivery(
  */
 export async function createOrderForClient(
   clientId: string,
-  dto: CreateOrderDTO
+  dto: CreateOrderDTO,
+  shopId = process.env.DEFAULT_SHOP_ID ?? "default"
 ): Promise<ServiceResult<{ orderId: string; orderNumber: string; clientId: string }>> {
-  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  const client = await prisma.client.findFirst({ where: { id: clientId, shopId } });
   if (!client) return err("Client not found");
 
   const totalPaise = dto.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
@@ -111,6 +112,8 @@ export async function createOrderForClient(
           create: dto.items.map((i) => ({
             garmentType: i.garmentType,
             description: i.description,
+            designImageUrl: i.designImageUrl,
+            designReferenceUrl: i.designReferenceUrl,
             quantity: i.quantity,
             unitPricePaise: i.unitPricePaise,
           })),

@@ -54,7 +54,7 @@ function toMeasurementsDTO(
 clients.get("/", async (c) => {
   const q = c.req.query("q");
   const page = Number(c.req.query("page") ?? "1");
-  const result = await listClients({ q, page: isNaN(page) ? 1 : page });
+  const result = await listClients({ q, page: isNaN(page) ? 1 : page, shopId: c.get("user").shopId });
   if (!result.ok) return c.json({ error: result.error }, 500);
   return c.json(result.data);
 });
@@ -64,7 +64,7 @@ clients.get("/", async (c) => {
  */
 clients.get("/:id", async (c) => {
   const id = c.req.param("id");
-  const result = await getClientDetail(id);
+  const result = await getClientDetail(id, c.get("user").shopId);
   if (!result.ok) return c.json({ error: result.error }, 404);
   return c.json(result.data);
 });
@@ -98,7 +98,9 @@ clients.post("/", async (c) => {
     order: {
       items: data.order.items.map((item) => ({
         garmentType: item.garmentType,
-        description: emptyToNull(item.description),
+          description: emptyToNull(item.description),
+          designImageUrl: emptyToNull(item.designImageUrl),
+          designReferenceUrl: emptyToNull(item.designReferenceUrl),
         quantity: item.quantity,
         unitPricePaise: rupeesToPaise(item.unitPrice),
       })),
@@ -108,7 +110,7 @@ clients.post("/", async (c) => {
     },
   };
 
-  const result = await createClientWithOrder(dto);
+  const result = await createClientWithOrder(dto, c.get("user").shopId);
   if (!result.ok) return c.json({ error: result.error }, 422);
   return c.json(result.data, 201);
 });
@@ -142,7 +144,7 @@ clients.put("/:id", async (c) => {
     measurements: toMeasurementsDTO(data.measurements),
   };
 
-  const result = await updateClient(id, dto);
+  const result = await updateClient(id, dto, c.get("user").shopId);
   if (!result.ok) return c.json({ error: result.error }, 422);
   return c.json(result.data);
 });
@@ -152,7 +154,7 @@ clients.put("/:id", async (c) => {
  */
 clients.delete("/:id", async (c) => {
   const id = c.req.param("id");
-  const result = await deleteClient(id);
+  const result = await deleteClient(id, c.get("user").shopId);
   if (!result.ok) return c.json({ error: result.error }, 404);
   return c.json(result.data);
 });
@@ -180,7 +182,9 @@ clients.post("/:clientId/orders", async (c) => {
   const dto: CreateOrderDTO = {
     items: data.items.map((i) => ({
       garmentType: i.garmentType,
-      description: emptyToNull(i.description),
+          description: emptyToNull(i.description),
+          designImageUrl: emptyToNull(i.designImageUrl),
+          designReferenceUrl: emptyToNull(i.designReferenceUrl),
       quantity: i.quantity,
       unitPricePaise: rupeesToPaise(i.unitPrice),
     })),
@@ -189,7 +193,7 @@ clients.post("/:clientId/orders", async (c) => {
     paymentMethod: data.paymentMethod === "" ? null : data.paymentMethod,
   };
 
-  const result = await createOrderForClient(clientId, dto);
+  const result = await createOrderForClient(clientId, dto, c.get("user").shopId);
   if (!result.ok) {
     return c.json({ error: result.error }, result.error === "Client not found" ? 404 : 422);
   }
