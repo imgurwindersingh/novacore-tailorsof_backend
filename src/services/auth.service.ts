@@ -83,7 +83,7 @@ export async function login(
       sessionUser = {
         id: "admin-1",
         email: adminEmail,
-        name: process.env.ADMIN_NAME ?? "Bluestar Tailors",
+        name: process.env.ADMIN_NAME ?? "Unique Tailors",
         role: "ADMIN" as Role,
       };
       isDbUser = false;

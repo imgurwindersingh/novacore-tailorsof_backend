@@ -14,7 +14,7 @@ async function main() {
   // 1. Create or update default Admin User
   const adminEmail = process.env.ADMIN_EMAIL ?? "admin@tailorsoft.dev";
   const adminPassword = process.env.ADMIN_PASSWORD ?? "admin123";
-  const adminName = process.env.ADMIN_NAME ?? "Bluestar Tailors";
+  const adminName = process.env.ADMIN_NAME ?? "Unique Tailors";
   const passwordHash = await hashPassword(adminPassword);
 
   const admin = await prisma.user.upsert({

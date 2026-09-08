@@ -84,7 +84,7 @@ npm run dev
 | `AUTH_SECRET`   | hard-coded fallback            | Secret for signing JWTs — **change in prod** |
 | `ADMIN_EMAIL`   | `admin@tailorsoft.dev`         | Fallback admin e-mail (no DB row needed)     |
 | `ADMIN_PASSWORD`| `admin123`                     | Fallback admin password                      |
-| `ADMIN_NAME`    | `Bluestar Tailors`             | Fallback admin display name                  |
+| `ADMIN_NAME`    | `Unique Tailors`               | Fallback admin display name                  |
 | `PORT`          | `3001`                         | HTTP port                                    |
 | `FRONTEND_URL`  | `http://localhost:3000`        | Allowed CORS origin                          |
 
