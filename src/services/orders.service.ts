@@ -1,11 +1,27 @@
 import type { Prisma } from "../lib/prisma-client.js";
 import { prisma } from "../lib/prisma.js";
+import { getDefaultGstRatePercent } from "./settings.service.js";
 import { err, ok, type CreateOrderDTO, type PaymentStatus, type ServiceResult } from "../lib/types.js";
 
 export function paymentStatusFor(totalPaise: number, paidPaise: number): PaymentStatus {
   if (paidPaise <= 0) return "PENDING";
   if (paidPaise >= totalPaise) return "PAID";
   return "PARTIAL";
+}
+
+/** GST amount in paise for a subtotal at the given rate (%). */
+export function gstPaiseFor(subtotalPaise: number, ratePercent: number): number {
+  if (!ratePercent || ratePercent <= 0 || subtotalPaise <= 0) return 0;
+  return Math.round((subtotalPaise * ratePercent) / 100);
+}
+
+/**
+ * Resolve the GST rate for a new order: an explicit override wins,
+ * otherwise the shop's current default rate is snapshotted.
+ */
+export async function resolveGstRate(dtoGstRate: number | null | undefined): Promise<number | null> {
+  if (dtoGstRate != null) return Math.max(0, Math.trunc(dtoGstRate));
+  return getDefaultGstRatePercent();
 }
 
 export async function nextOrderNumberInTx(tx: Prisma.TransactionClient | typeof prisma = prisma): Promise<string> {
@@ -22,7 +38,7 @@ export async function nextOrderNumberInTx(tx: Prisma.TransactionClient | typeof 
 export async function recomputeOrderTotalsInTx(
   tx: Prisma.TransactionClient | typeof prisma = prisma,
   orderId: string
-): Promise<{ totalPaise: number; paidPaise: number }> {
+): Promise<{ totalPaise: number; subtotalPaise: number; gstPaise: number; paidPaise: number }> {
   const order = await tx.order.findUniqueOrThrow({
     where: { id: orderId },
     include: {
@@ -30,13 +46,15 @@ export async function recomputeOrderTotalsInTx(
       payments: { select: { amountPaise: true } },
     },
   });
-  const totalPaise = order.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
+  const subtotalPaise = order.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
+  const gstPaise = gstPaiseFor(subtotalPaise, order.gstRatePercent ?? 0);
+  const totalPaise = subtotalPaise + gstPaise;
   const paidPaise = order.payments.reduce((sum, p) => sum + p.amountPaise, 0);
   await tx.order.update({
     where: { id: orderId },
-    data: { totalPaise, paymentStatus: paymentStatusFor(totalPaise, paidPaise) },
+    data: { totalPaise, gstPaise, paymentStatus: paymentStatusFor(totalPaise, paidPaise) },
   });
-  return { totalPaise, paidPaise };
+  return { totalPaise, subtotalPaise, gstPaise, paidPaise };
 }
 
 export async function markOrderDelivered(
@@ -89,8 +107,13 @@ export async function createOrderForClient(
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) return err("Client not found");
 
-  const totalPaise = dto.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
-  if (totalPaise <= 0) return err("Order total must be greater than zero");
+  const subtotalPaise = dto.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
+  if (subtotalPaise <= 0) return err("Order total must be greater than zero");
+
+  const gstRate = await resolveGstRate(dto.gstRatePercent);
+  const gstPaise = gstPaiseFor(subtotalPaise, gstRate ?? 0);
+  const totalPaise = subtotalPaise + gstPaise;
+
   if (dto.advancePaise > totalPaise) return err("Advance cannot exceed the order total");
   if (dto.advancePaise > 0 && !dto.paymentMethod) {
     return err("Select a payment method for the advance");
@@ -104,6 +127,8 @@ export async function createOrderForClient(
         clientId,
         orderNumber,
         totalPaise,
+        gstRatePercent: (gstRate ?? 0) > 0 ? gstRate : null,
+        gstPaise,
         paymentStatus: paymentStatusFor(totalPaise, dto.advancePaise),
         expectedDelivery: dto.expectedDelivery ? new Date(dto.expectedDelivery) : null,
         notes: dto.notes ?? null,

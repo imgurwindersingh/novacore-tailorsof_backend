@@ -6,6 +6,19 @@ export type PaymentMethod = "CASH" | "UPI" | "CARD" | "OTHER";
 
 export interface ShopSettings {
   whatsappBusinessMobile: string | null;
+  /** Default GST rate (%) applied to new orders when not overridden. */
+  gstRatePercent: number | null;
+  /** Business GSTIN shown on the order slip / invoice. */
+  gstNumber: string | null;
+  /** Default price per garment type, used to pre-fill the unit rate on new orders. */
+  defaultGarmentRates: Record<string, number>;
+  /** Delivery-duration presets (in days) offered when creating an order. */
+  deliveryPresets: number[];
+}
+
+export interface GarmentRateEntry {
+  garment: string;
+  rate: number;
 }
 
 export type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -50,9 +63,9 @@ export interface MeasurementsDTO {
 export interface ProfileDTO {
   fullName: string;
   mobile: string;
-  fatherOrHusband: string | null;
-  email: string | null;
-  address: string | null;
+  fatherOrHusband?: string | null;
+  email?: string | null;
+  address?: string | null;
   notes: string | null;
 }
 
@@ -69,6 +82,8 @@ export interface CreateOrderDTO {
   advancePaise: number;
   paymentMethod: PaymentMethod | null;
   notes?: string | null;
+  /** GST rate (%) snapshot for this order. Omit (or null) to use the shop default. */
+  gstRatePercent?: number | null;
 }
 
 export interface CreateClientWithOrderDTO {
@@ -105,6 +120,9 @@ export interface OrderDetail {
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   totalPaise: number;
+  subtotalPaise: number;
+  gstPaise: number;
+  gstRatePercent: number | null;
   paidPaise: number;
   duePaise: number;
   expectedDelivery: Date | null;

@@ -119,6 +119,7 @@ clients.post("/", async (c) => {
       expectedDelivery: data.order.expectedDelivery || null,
       advancePaise: rupeesToPaise(data.order.advance),
       paymentMethod: data.order.paymentMethod === "" ? null : data.order.paymentMethod,
+      gstRatePercent: data.order.gstRatePercent ?? null,
     },
   };
 
@@ -201,6 +202,7 @@ clients.post("/:clientId/orders", async (c) => {
     expectedDelivery: data.expectedDelivery || null,
     advancePaise: rupeesToPaise(data.advance),
     paymentMethod: data.paymentMethod === "" ? null : data.paymentMethod,
+    gstRatePercent: data.gstRatePercent ?? null,
   };
 
   const result = await createOrderForClient(clientId, dto);

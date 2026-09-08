@@ -113,6 +113,10 @@ model Order {
   status           String    @default("IN_PROGRESS")
   paymentStatus    String    @default("PENDING")
   totalPaise       Int       @default(0)
+  /// GST rate (%) snapshot taken when the order was created (null = no GST).
+  gstRatePercent   Int?
+  /// GST amount in paise = subtotal * gstRatePercent / 100.
+  gstPaise         Int       @default(0)
   expectedDelivery DateTime?
   notes            String?
   createdAt        DateTime  @default(now())

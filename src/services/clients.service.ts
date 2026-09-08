@@ -17,7 +17,7 @@ import {
   type UpdateClientDTO,
 } from "../lib/types.js";
 import { hasAnyMeasurement, upsertMeasurementsInTx } from "./measurements.service.js";
-import { nextOrderNumberInTx, paymentStatusFor } from "./orders.service.js";
+import { gstPaiseFor, nextOrderNumberInTx, paymentStatusFor, resolveGstRate } from "./orders.service.js";
 
 export function emptyToNull(value: string | null | undefined): string | null {
   return value && value.trim() !== "" ? value : null;
@@ -158,6 +158,8 @@ function toOrderDetail(order: {
   status: string;
   paymentStatus: string;
   totalPaise: number;
+  gstPaise: number;
+  gstRatePercent: number | null;
   expectedDelivery: Date | null;
   notes: string | null;
   createdAt: Date;
@@ -165,12 +167,16 @@ function toOrderDetail(order: {
   payments: { id: string; amountPaise: number; method: string; note: string | null; paidAt: Date }[];
 }): OrderDetail {
   const paidPaise = order.payments.reduce((sum, p) => sum + p.amountPaise, 0);
+  const subtotalPaise = order.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
   return {
     id: order.id,
     orderNumber: order.orderNumber,
     status: order.status as OrderDetail["status"],
     paymentStatus: order.paymentStatus as PaymentStatus,
     totalPaise: order.totalPaise,
+    subtotalPaise,
+    gstPaise: order.gstPaise,
+    gstRatePercent: order.gstRatePercent,
     paidPaise,
     duePaise: Math.max(0, order.totalPaise - paidPaise),
     expectedDelivery: order.expectedDelivery,
@@ -254,7 +260,11 @@ export async function createClientWithOrder(
   const existing = await prisma.client.findUnique({ where: { mobile: dto.profile.mobile } });
   if (existing) return err("A client with this mobile number already exists");
 
-  const totalPaise = dto.order.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
+  const subtotalPaise = dto.order.items.reduce((sum, i) => sum + i.quantity * i.unitPricePaise, 0);
+  const gstRate = await resolveGstRate(dto.order.gstRatePercent);
+  const gstPaise = gstPaiseFor(subtotalPaise, gstRate ?? 0);
+  const totalPaise = subtotalPaise + gstPaise;
+
   if (dto.order.advancePaise > totalPaise) return err("Advance cannot exceed the order total");
   if (dto.order.advancePaise > 0 && !dto.order.paymentMethod) {
     return err("Select a payment method for the advance");
@@ -305,6 +315,8 @@ export async function createClientWithOrder(
           create: {
             orderNumber,
             totalPaise,
+            gstRatePercent: (gstRate ?? 0) > 0 ? gstRate : null,
+            gstPaise,
             paymentStatus: paymentStatusFor(totalPaise, dto.order.advancePaise),
             expectedDelivery: dto.order.expectedDelivery ? new Date(dto.order.expectedDelivery) : null,
             notes: dto.order.notes ?? null,

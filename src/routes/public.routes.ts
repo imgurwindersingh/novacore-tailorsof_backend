@@ -5,6 +5,7 @@
  */
 import { Hono } from "hono";
 import { getClientDetail } from "../services/clients.service.js";
+import { getShopSettings } from "../services/settings.service.js";
 import { prisma } from "../lib/prisma.js";
 
 const publicRoutes = new Hono();
@@ -22,12 +23,15 @@ publicRoutes.get("/clients/:id", async (c) => {
   if (!result.ok) return c.json({ error: "Client not found" }, 404);
 
   const client = result.data;
+  const settingsResult = await getShopSettings();
+  const gstNumber = settingsResult.ok ? settingsResult.data.gstNumber : null;
 
   // Strip personally identifiable / sensitive fields before returning
   return c.json({
     id: client.id,
     fullName: client.fullName,
     createdAt: client.createdAt,
+    gstNumber,
     generalMeasurement: client.generalMeasurement,
     shirtMeasurement: client.shirtMeasurement,
     pantMeasurement: client.pantMeasurement,
@@ -37,6 +41,9 @@ publicRoutes.get("/clients/:id", async (c) => {
       status: order.status,
       paymentStatus: order.paymentStatus,
       totalPaise: order.totalPaise,
+      subtotalPaise: order.subtotalPaise,
+      gstPaise: order.gstPaise,
+      gstRatePercent: order.gstRatePercent,
       paidPaise: order.paidPaise,
       duePaise: order.duePaise,
       expectedDelivery: order.expectedDelivery,
