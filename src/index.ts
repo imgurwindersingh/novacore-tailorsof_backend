@@ -10,6 +10,8 @@ import dashboardRoutes from "./routes/dashboard.routes.js";
 import orderRoutes from "./routes/orders.routes.js";
 import paymentRoutes from "./routes/payments.routes.js";
 import publicRoutes from "./routes/public.routes.js";
+import settingsRoutes from "./routes/settings.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 import { buildOpenApiSpec, renderSwaggerHtml } from "./lib/openapi.js";
 
 type Bindings = {
@@ -178,6 +180,8 @@ const ENDPOINTS_CATALOG = [
   { group: "Payments", method: "POST", path: "/api/payments/orders/:orderId", auth: true, desc: "Record a payment against an order (CASH, UPI, CARD, OTHER)" },
   { group: "Payments", method: "GET", path: "/api/payments/clients/:clientId", auth: true, desc: "Retrieve all payment transactions for a client" },
   { group: "Public", method: "GET", path: "/api/public/clients/:id", auth: false, desc: "Public read-only client profile: name, measurements & order summary (no auth required)" },
+  { group: "Settings", method: "GET", path: "/api/settings", auth: true, desc: "Read shop settings (e.g. admin WhatsApp Business number)" },
+  { group: "Settings", method: "PUT", path: "/api/settings/whatsapp-business", auth: true, desc: "Update the admin WhatsApp Business number used when sharing profiles" },
 ];
 
 function renderDashboardHtml(baseUrl: string, uptime: number) {
@@ -489,6 +493,8 @@ app.route("/api/dashboard", dashboardRoutes);
 app.route("/api/orders", orderRoutes);
 app.route("/api/payments", paymentRoutes);
 app.route("/api/public", publicRoutes);
+app.route("/api/settings", settingsRoutes);
+app.route("/api/upload", uploadRoutes);
 
 // ── 404 fallback ──────────────────────────────────────────────────────────────
 

@@ -5,6 +5,7 @@
  */
 import { Hono } from "hono";
 import { getClientDetail } from "../services/clients.service.js";
+import { prisma } from "../lib/prisma.js";
 
 const publicRoutes = new Hono();
 
@@ -44,6 +45,46 @@ publicRoutes.get("/clients/:id", async (c) => {
       items: order.items,
       // Payments are intentionally excluded from the public view
     })),
+  });
+});
+
+/**
+ * PATCH /api/public/orders/:orderId/items/:itemId
+ * Update design image URL or reference URL for an order item.
+ * No auth required (public page).
+ */
+publicRoutes.patch("/orders/:orderId/items/:itemId", async (c) => {
+  const { orderId, itemId } = c.req.param();
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const { designImageUrl, designReferenceUrl } = body as {
+    designImageUrl?: string | null;
+    designReferenceUrl?: string | null;
+  };
+
+  // Verify the item belongs to the order
+  const item = await prisma.orderItem.findFirst({
+    where: { id: itemId, orderId },
+  });
+  if (!item) return c.json({ error: "Order item not found" }, 404);
+
+  const updated = await prisma.orderItem.update({
+    where: { id: itemId },
+    data: {
+      ...(designImageUrl !== undefined ? { designImageUrl: designImageUrl || null } : {}),
+      ...(designReferenceUrl !== undefined ? { designReferenceUrl: designReferenceUrl || null } : {}),
+    },
+  });
+
+  return c.json({
+    id: updated.id,
+    designImageUrl: updated.designImageUrl,
+    designReferenceUrl: updated.designReferenceUrl,
   });
 });
 

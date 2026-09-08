@@ -4,6 +4,10 @@ export type OrderStatus = "IN_PROGRESS" | "COMPLETED" | "DELIVERED" | "CANCELLED
 export type PaymentStatus = "PAID" | "PARTIAL" | "PENDING";
 export type PaymentMethod = "CASH" | "UPI" | "CARD" | "OTHER";
 
+export interface ShopSettings {
+  whatsappBusinessMobile: string | null;
+}
+
 export type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 export function ok<T>(data: T): ServiceResult<T> {
@@ -110,6 +114,8 @@ export interface OrderDetail {
     id: string;
     garmentType: string;
     description: string | null;
+    designImageUrl: string | null;
+    designReferenceUrl: string | null;
     quantity: number;
     unitPricePaise: number;
   }[];

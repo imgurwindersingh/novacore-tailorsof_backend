@@ -1,2 +1,2 @@
-/** Prisma Client (WASM / Cloudflare & Driver Adapters). */
-export { Prisma, PrismaClient } from "../generated/prisma-cf/client.js";
+/** Prisma Client (Node.js / Driver Adapters). */
+export { Prisma, PrismaClient } from "../generated/prisma/client.js";

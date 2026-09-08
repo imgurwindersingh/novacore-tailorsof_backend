@@ -3,6 +3,7 @@ import { rupeesToPaise } from "../lib/money.js";
 import { addClientWizardSchema, updateClientSchema, wizardOrderSchema, type AddClientWizardInput, type UpdateClientInput } from "../lib/validators/client.js";
 import { requireAuth, type AuthVariables } from "../middleware/auth.middleware.js";
 import {
+  checkMobileExists,
   createClientWithOrder,
   deleteClient,
   emptyToNull,
@@ -55,6 +56,19 @@ clients.get("/", async (c) => {
   const q = c.req.query("q");
   const page = Number(c.req.query("page") ?? "1");
   const result = await listClients({ q, page: isNaN(page) ? 1 : page });
+  if (!result.ok) return c.json({ error: result.error }, 500);
+  return c.json(result.data);
+});
+
+/**
+ * GET /api/clients/check-mobile/:mobile
+ * Returns whether a client with this mobile number already exists.
+ * Registered before /:id so the segment isn't treated as an id.
+ */
+clients.get("/check-mobile/:mobile", async (c) => {
+  const mobile = c.req.param("mobile").trim();
+  if (!mobile) return c.json({ error: "Mobile number is required" }, 400);
+  const result = await checkMobileExists(mobile);
   if (!result.ok) return c.json({ error: result.error }, 500);
   return c.json(result.data);
 });

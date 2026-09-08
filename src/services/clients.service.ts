@@ -161,7 +161,7 @@ function toOrderDetail(order: {
   expectedDelivery: Date | null;
   notes: string | null;
   createdAt: Date;
-  items: { id: string; garmentType: string; description: string | null; quantity: number; unitPricePaise: number }[];
+  items: { id: string; garmentType: string; description: string | null; designImageUrl: string | null; designReferenceUrl: string | null; quantity: number; unitPricePaise: number }[];
   payments: { id: string; amountPaise: number; method: string; note: string | null; paidAt: Date }[];
 }): OrderDetail {
   const paidPaise = order.payments.reduce((sum, p) => sum + p.amountPaise, 0);
@@ -236,6 +236,16 @@ export async function getClientDetail(id: string): Promise<ServiceResult<ClientD
       : null,
     orders: client.orders.map(toOrderDetail),
   });
+}
+
+export async function checkMobileExists(
+  mobile: string
+): Promise<ServiceResult<{ exists: boolean; fullName: string | null }>> {
+  const client = await prisma.client.findUnique({
+    where: { mobile: mobile.trim() },
+    select: { id: true, fullName: true },
+  });
+  return ok({ exists: Boolean(client), fullName: client?.fullName ?? null });
 }
 
 export async function createClientWithOrder(

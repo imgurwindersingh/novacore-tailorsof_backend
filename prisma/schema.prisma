@@ -128,12 +128,14 @@ model Order {
 }
 
 model OrderItem {
-  id             String  @id @default(cuid())
-  orderId        String
-  garmentType    String
-  description    String?
-  quantity       Int     @default(1)
-  unitPricePaise Int
+  id                 String  @id @default(cuid())
+  orderId            String
+  garmentType        String
+  description        String?
+  designImageUrl     String?
+  designReferenceUrl String?
+  quantity           Int     @default(1)
+  unitPricePaise     Int
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -153,4 +155,11 @@ model Payment {
 
   @@index([orderId])
   @@index([paidAt])
+}
+
+/// Key-value store for shop configuration (e.g. the admin WhatsApp Business number).
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }
