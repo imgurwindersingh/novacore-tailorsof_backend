@@ -105,9 +105,17 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
       }
     }
     const has = (key: string) => rows.some((r) => r.key === key && r.value && r.value.trim());
-    settings.whatsappConfigured = has(WHATSAPP_TOKEN_KEY) && has(WHATSAPP_PHONE_KEY);
+    const envHas = (key: string) => Boolean(process.env[key]?.trim());
+    settings.whatsappConfigured =
+      (has(WHATSAPP_TOKEN_KEY) || envHas("WHATSAPP_ACCESS_TOKEN")) &&
+      (has(WHATSAPP_PHONE_KEY) || envHas("WHATSAPP_PHONE_NUMBER_ID"));
     settings.twilioConfigured =
-      has(TWILIO_SID_KEY) && has(TWILIO_AUTH_KEY) && has(TWILIO_FROM_KEY);
+      (has(TWILIO_SID_KEY) || envHas("TWILIO_ACCOUNT_SID")) &&
+      (has(TWILIO_AUTH_KEY) || envHas("TWILIO_AUTH_TOKEN")) &&
+      (has(TWILIO_FROM_KEY) || envHas("TWILIO_FROM_NUMBER"));
+    if (!settings.twilioFromNumber && envHas("TWILIO_FROM_NUMBER")) {
+      settings.twilioFromNumber = process.env.TWILIO_FROM_NUMBER!;
+    }
     return ok(settings);
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to load settings");

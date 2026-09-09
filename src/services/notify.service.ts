@@ -5,9 +5,13 @@ import type { NotifyResult } from "../lib/types.js";
 /**
  * Outbound client notifications.
  * Order messages are preferred via the WhatsApp Business Cloud API when the
- * shop has configured credentials, and fall back to Twilio SMS. When neither
- * channel is configured the result is { channel: "none" } so callers can tell
- * the UI to fall back to a copy-ready message.
+ * shop has configured credentials, and fall back to Twilio SMS. Credentials can
+ * come from the Settings page (stored in the DB) or from worker environment
+ * variables/secrets (`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`,
+ * `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`), with DB
+ * values taking precedence. When neither channel is configured the result is
+ * { channel: "none" } so callers can tell the UI to fall back to a copy-ready
+ * message.
  */
 
 type NotifyType = "created" | "delivered";
@@ -71,10 +75,23 @@ export function buildOrderMessage(input: OrderMessageInput): string {
   ].join("\n");
 }
 
+const ENV_FALLBACK: Record<string, string | undefined> = {
+  whatsapp_access_token: process.env.WHATSAPP_ACCESS_TOKEN,
+  whatsapp_phone_number_id: process.env.WHATSAPP_PHONE_NUMBER_ID,
+  twilio_account_sid: process.env.TWILIO_ACCOUNT_SID,
+  twilio_auth_token: process.env.TWILIO_AUTH_TOKEN,
+  twilio_from_number: process.env.TWILIO_FROM_NUMBER,
+};
+
 async function readChannelSettings(): Promise<Record<string, string>> {
   const rows = await prisma.setting.findMany({ where: { key: { in: [...SECRET_KEYS] } } });
   const map: Record<string, string> = {};
-  for (const row of rows) map[row.key] = row.value;
+  for (const row of rows) {
+    if (row.value?.trim()) map[row.key] = row.value;
+  }
+  for (const [key, envValue] of Object.entries(ENV_FALLBACK)) {
+    if (!map[key] && envValue?.trim()) map[key] = envValue.trim();
+  }
   return map;
 }
 
