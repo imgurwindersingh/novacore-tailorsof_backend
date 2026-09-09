@@ -7,8 +7,8 @@ import type { NotifyResult } from "../lib/types.js";
  * handles both SMS and WhatsApp (using `whatsapp:+…` From/To channels).
  * Credentials come exclusively from the backend environment variables/secrets
  * (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`,
- * `TWILIO_WHATSAPP_ENABLED`, `TWILIO_CONTENT_SID`) — they are never stored in
- * or read from the database.
+ * `TWILIO_WHATSAPP_ENABLED`, `TWILIO_CONTENT_SID`, `TWILIO_CONTENT_VARIABLES`,
+ * `TWILIO_SMS_TEMPLATE`) — they are never stored in or read from the database.
  *
  * WhatsApp is tried first when enabled; if it fails the message automatically
  * falls back to a plain SMS. When no credentials are configured the result is
@@ -33,6 +33,8 @@ const CHANNEL_KEYS = [
   "twilio_from_number",
   "twilio_whatsapp_enabled",
   "twilio_content_sid",
+  "twilio_content_variables",
+  "twilio_sms_template",
 ] as const;
 
 const ENV_FALLBACK: Record<string, string | undefined> = {
@@ -41,16 +43,19 @@ const ENV_FALLBACK: Record<string, string | undefined> = {
   twilio_from_number: process.env.TWILIO_FROM_NUMBER,
   twilio_whatsapp_enabled: process.env.TWILIO_WHATSAPP_ENABLED,
   twilio_content_sid: process.env.TWILIO_CONTENT_SID,
+  twilio_content_variables: process.env.TWILIO_CONTENT_VARIABLES,
+  twilio_sms_template: process.env.TWILIO_SMS_TEMPLATE,
 };
 
-/** Normalize a client mobile to E.164 (defaults 10-digit numbers to +91 India). */
+/** Normalize a client mobile to E.164 with a leading "+" (Twilio requires it). */
 export function toE164(mobile: string): string | null {
   const digits = mobile.replace(/\D/g, "");
   if (!digits) return null;
-  if (digits.length === 10) return `91${digits}`;
-  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
-  if (digits.length === 12 && digits.startsWith("91")) return digits;
-  if (digits.length >= 8 && digits.length <= 15) return digits;
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length === 11 && digits.startsWith("0")) return `+91${digits.slice(1)}`;
+  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
+  if (digits.length === 13 && digits.startsWith("091")) return `+91${digits.slice(3)}`;
+  if (digits.length >= 8 && digits.length <= 15) return `+${digits}`;
   return null;
 }
 
@@ -112,16 +117,25 @@ async function sendTwilioMessage(
     if (channel === "whatsapp") {
       form.set("To", `whatsapp:${to}`);
       form.set("From", `whatsapp:${from}`);
+      // WhatsApp business-initiated messages require an approved content
+      // template (ContentSid). Free-form Body only works inside the 24-hour
+      // customer-service window, so we always prefer the template when set.
       const contentSid = creds["twilio_content_sid"]?.trim();
+      const contentVariables = creds["twilio_content_variables"]?.trim();
       if (contentSid) {
         form.set("ContentSid", contentSid);
+        if (contentVariables) form.set("ContentVariables", contentVariables);
       } else {
         form.set("Body", message);
       }
     } else {
       form.set("To", to);
       form.set("From", from);
-      form.set("Body", message);
+      // Trial accounts can only send predefined SMS template names in Body.
+      // When a template name is set, use it; otherwise free-form (upgraded
+      // accounts).
+      const smsTemplate = creds["twilio_sms_template"]?.trim();
+      form.set("Body", smsTemplate || message);
     }
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`,
