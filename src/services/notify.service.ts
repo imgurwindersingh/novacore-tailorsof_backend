@@ -6,10 +6,10 @@ import type { NotifyResult } from "../lib/types.js";
  * Outbound client notifications — Kapso WhatsApp (Meta Cloud API proxy).
  * Credentials come exclusively from the backend environment variables/secrets:
  * `KAPSO_API_KEY`, `KAPSO_PHONE_NUMBER_ID`, `KAPSO_WHATSAPP_ENABLED`,
- * `KAPSO_WHATSAPP_TEMPLATE` (approved template name — its body variables
- * `{{1}}…{{5}}` are mapped 1:1 to the order message parts), `KAPSO_WHATSAPP_LANGUAGE`
- * (template language code, default en_US). They are never stored in or read
- * from the database.
+ * `KAPSO_WHATSAPP_TEMPLATE` / `KAPSO_WHATSAPP_DELIVERY_TEMPLATE` (approved
+ * template names — body `{{1}}` = order number, `{{2}}` = amount),
+ * `KAPSO_WHATSAPP_LANGUAGE` (template language code, default en_US). They are
+ * never stored in or read from the database.
  *
  * When no credentials are configured the result is { channel: "none" } so
  * callers can show a copy-ready message instead.
@@ -32,6 +32,7 @@ const CHANNEL_KEYS = [
   "kapso_phone_number_id",
   "kapso_whatsapp_enabled",
   "kapso_whatsapp_template",
+  "kapso_whatsapp_delivery_template",
   "kapso_whatsapp_language",
 ] as const;
 
@@ -40,6 +41,7 @@ const ENV_FALLBACK: Record<string, string | undefined> = {
   kapso_phone_number_id: process.env.KAPSO_PHONE_NUMBER_ID,
   kapso_whatsapp_enabled: process.env.KAPSO_WHATSAPP_ENABLED,
   kapso_whatsapp_template: process.env.KAPSO_WHATSAPP_TEMPLATE,
+  kapso_whatsapp_delivery_template: process.env.KAPSO_WHATSAPP_DELIVERY_TEMPLATE,
   kapso_whatsapp_language: process.env.KAPSO_WHATSAPP_LANGUAGE,
 };
 
@@ -86,36 +88,22 @@ export function buildOrderMessage(input: OrderMessageInput): string {
 }
 
 /**
- * Parameters for the `order_update` approved template (body `{{1}}…{{5}}`):
- *   1. client name        (Namaste <name>, …)
- *   2. headline           (your order … placed / ready for pickup)
- *   3. items line
- *   4. amount line
- *   5. closing line
+ * Parameters for the approved templates (`order_placed_v3` / `order_ready_v2`,
+ * body `{{1}} = order number`, `{{2}} = amount`).
  */
 export function buildOrderTemplateParams(input: OrderMessageInput): string[] {
-  const items = input.items.map((i) => `${i.quantity}× ${i.garmentType}`).join(", ");
   const due = Math.max(0, input.totalPaise - input.paidPaise);
 
-  if (input.type === "delivered") {
-    return [
-      input.fullName?.trim() || "Guest",
-      `your order ${input.orderNumber} is ready for pickup!`,
-      `Items: ${items}`,
-      `Total ${formatINR(input.totalPaise)} · Paid ${formatINR(input.paidPaise)}${
-        due > 0 ? ` · Balance ${formatINR(due)}` : ""
-      }`,
-      "Thank you for choosing us — see you soon!",
-    ];
-  }
+  const amount =
+    input.type === "delivered"
+      ? `Total ${formatINR(input.totalPaise)} · Paid ${formatINR(input.paidPaise)}${
+          due > 0 ? ` · Balance ${formatINR(due)}` : ""
+        }`
+      : `Total ${formatINR(input.totalPaise)}${
+          due > 0 ? ` · Balance due ${formatINR(due)}` : ""
+        }`;
 
-  return [
-    input.fullName?.trim() || "Guest",
-    `your order ${input.orderNumber} has been placed successfully.`,
-    `Items: ${items}`,
-    `Total ${formatINR(input.totalPaise)}${due > 0 ? ` · Balance due ${formatINR(due)}` : ""}`,
-    "Thank you for choosing us. We will keep you updated!",
-  ];
+  return [input.orderNumber, amount];
 }
 
 async function readChannelSettings(): Promise<Record<string, string>> {
@@ -144,12 +132,13 @@ function extractApiError(resText: string, resStatus: number): string {
 /** Send one WhatsApp message through Kapso (Meta Cloud API proxy). */
 async function sendKapsoWhatsApp(
   toE164Value: string,
+  templateName: string | undefined,
   params: string[],
   creds: Record<string, string>
 ): Promise<NotifyResult> {
   const apiKey = creds["kapso_api_key"];
   const phoneNumberId = creds["kapso_phone_number_id"];
-  const template = creds["kapso_whatsapp_template"]?.trim();
+  const template = templateName?.trim();
   const language = creds["kapso_whatsapp_language"]?.trim() || "en_US";
   // Meta Cloud API expects the recipient without the leading "+".
   const to = toE164Value.replace(/\D/g, "");
@@ -157,8 +146,8 @@ async function sendKapsoWhatsApp(
   let payload: Record<string, unknown>;
   if (template) {
     // Business-initiated messages to clients who haven't messaged first must be
-    // an approved template (name must match `order_update`). The params are
-    // mapped 1:1 to the body variables `{{1}}…{{5}}`.
+    // an approved template (`order_placed_v3` / `order_ready_v2`). The params
+    // are mapped 1:1: {{1}} = order number, {{2}} = amount.
     payload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -238,7 +227,12 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
     return { channel: "none", ok: false, error: "WhatsApp notifications are disabled" };
   }
 
-  return sendKapsoWhatsApp(to, buildOrderTemplateParams(input), creds);
+  const template =
+    input.type === "delivered"
+      ? (creds["kapso_whatsapp_delivery_template"] ?? "").trim()
+      : (creds["kapso_whatsapp_template"] ?? "").trim();
+
+  return sendKapsoWhatsApp(to, template || undefined, buildOrderTemplateParams(input), creds);
 }
 
 /** Send the "order placed" message after a client's order is created. */
