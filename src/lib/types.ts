@@ -14,12 +14,14 @@ export interface ShopSettings {
   defaultGarmentRates: Record<string, number>;
   /** Delivery-duration presets (in days) offered when creating an order. */
   deliveryPresets: number[];
-  /** True when the WhatsApp Business Cloud API credentials are saved. */
-  whatsappConfigured: boolean;
-  /** True when the Twilio SMS credentials are saved. */
+  /** True when Twilio credentials (SID + Auth + From number) are saved. */
   twilioConfigured: boolean;
-  /** Twilio sender number (E.164) used for outgoing SMS, when configured. */
+  /** Whether client messages go via Twilio WhatsApp (true) or plain SMS (false). */
+  whatsappEnabled: boolean;
+  /** Twilio sender number (E.164) used for outgoing SMS/WhatsApp, when configured. */
   twilioFromNumber: string | null;
+  /** Optional Twilio WhatsApp content template ID (ContentSid). */
+  twilioContentSid: string | null;
 }
 
 export type NotifyChannel = "whatsapp" | "sms" | "none";

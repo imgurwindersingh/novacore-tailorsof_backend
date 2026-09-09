@@ -3,15 +3,16 @@ import { formatINR } from "../lib/money.js";
 import type { NotifyResult } from "../lib/types.js";
 
 /**
- * Outbound client notifications.
- * Order messages are preferred via the WhatsApp Business Cloud API when the
- * shop has configured credentials, and fall back to Twilio SMS. Credentials can
- * come from the Settings page (stored in the DB) or from worker environment
- * variables/secrets (`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`,
- * `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`), with DB
- * values taking precedence. When neither channel is configured the result is
- * { channel: "none" } so callers can tell the UI to fall back to a copy-ready
- * message.
+ * Outbound client notifications — all through Twilio's Messages API, which
+ * handles both SMS and WhatsApp (using `whatsapp:+…` From/To channels).
+ * Credentials come exclusively from the backend environment variables/secrets
+ * (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`,
+ * `TWILIO_WHATSAPP_ENABLED`, `TWILIO_CONTENT_SID`) — they are never stored in
+ * or read from the database.
+ *
+ * WhatsApp is tried first when enabled; if it fails the message automatically
+ * falls back to a plain SMS. When no credentials are configured the result is
+ * { channel: "none" } so callers can show a copy-ready message instead.
  */
 
 type NotifyType = "created" | "delivered";
@@ -26,13 +27,21 @@ interface OrderMessageInput {
   paidPaise: number;
 }
 
-const SECRET_KEYS = [
-  "whatsapp_access_token",
-  "whatsapp_phone_number_id",
+const CHANNEL_KEYS = [
   "twilio_account_sid",
   "twilio_auth_token",
   "twilio_from_number",
+  "twilio_whatsapp_enabled",
+  "twilio_content_sid",
 ] as const;
+
+const ENV_FALLBACK: Record<string, string | undefined> = {
+  twilio_account_sid: process.env.TWILIO_ACCOUNT_SID,
+  twilio_auth_token: process.env.TWILIO_AUTH_TOKEN,
+  twilio_from_number: process.env.TWILIO_FROM_NUMBER,
+  twilio_whatsapp_enabled: process.env.TWILIO_WHATSAPP_ENABLED,
+  twilio_content_sid: process.env.TWILIO_CONTENT_SID,
+};
 
 /** Normalize a client mobile to E.164 (defaults 10-digit numbers to +91 India). */
 export function toE164(mobile: string): string | null {
@@ -43,6 +52,11 @@ export function toE164(mobile: string): string | null {
   if (digits.length === 12 && digits.startsWith("91")) return digits;
   if (digits.length >= 8 && digits.length <= 15) return digits;
   return null;
+}
+
+/** Strip a stored "whatsapp:" / spaces / dashes prefix, keep E.164. */
+function cleanE164(value: string): string {
+  return value.replace(/whatsapp:/gi, "").replace(/[^\d+]/g, "");
 }
 
 export function buildOrderMessage(input: OrderMessageInput): string {
@@ -75,67 +89,40 @@ export function buildOrderMessage(input: OrderMessageInput): string {
   ].join("\n");
 }
 
-const ENV_FALLBACK: Record<string, string | undefined> = {
-  whatsapp_access_token: process.env.WHATSAPP_ACCESS_TOKEN,
-  whatsapp_phone_number_id: process.env.WHATSAPP_PHONE_NUMBER_ID,
-  twilio_account_sid: process.env.TWILIO_ACCOUNT_SID,
-  twilio_auth_token: process.env.TWILIO_AUTH_TOKEN,
-  twilio_from_number: process.env.TWILIO_FROM_NUMBER,
-};
-
 async function readChannelSettings(): Promise<Record<string, string>> {
-  const rows = await prisma.setting.findMany({ where: { key: { in: [...SECRET_KEYS] } } });
   const map: Record<string, string> = {};
-  for (const row of rows) {
-    if (row.value?.trim()) map[row.key] = row.value;
-  }
-  for (const [key, envValue] of Object.entries(ENV_FALLBACK)) {
-    if (!map[key] && envValue?.trim()) map[key] = envValue.trim();
+  for (const key of CHANNEL_KEYS) {
+    const value = ENV_FALLBACK[key]?.trim();
+    if (value) map[key] = value;
   }
   return map;
 }
 
-async function sendWhatsApp(to: string, message: string, creds: Record<string, string>): Promise<NotifyResult> {
-  const token = creds["whatsapp_access_token"];
-  const phoneNumberId = creds["whatsapp_phone_number_id"];
-  try {
-    const res = await fetch(
-      `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to,
-          type: "text",
-          text: { body: message },
-        }),
-      }
-    );
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 300);
-      return { channel: "whatsapp", ok: false, error: `WhatsApp API ${res.status}: ${detail}` };
-    }
-    return { channel: "whatsapp", ok: true };
-  } catch (e) {
-    return {
-      channel: "whatsapp",
-      ok: false,
-      error: e instanceof Error ? e.message : "WhatsApp send failed",
-    };
-  }
-}
-
-async function sendSms(to: string, message: string, creds: Record<string, string>): Promise<NotifyResult> {
+async function sendTwilioMessage(
+  to: string,
+  message: string,
+  creds: Record<string, string>,
+  channel: "whatsapp" | "sms"
+): Promise<NotifyResult> {
   const sid = creds["twilio_account_sid"];
   const authToken = creds["twilio_auth_token"];
-  const from = creds["twilio_from_number"];
+  const from = cleanE164(creds["twilio_from_number"]);
   try {
-    const body = new URLSearchParams({ To: to, From: from, Body: message });
+    const form = new URLSearchParams();
+    if (channel === "whatsapp") {
+      form.set("To", `whatsapp:${to}`);
+      form.set("From", `whatsapp:${from}`);
+      const contentSid = creds["twilio_content_sid"]?.trim();
+      if (contentSid) {
+        form.set("ContentSid", contentSid);
+      } else {
+        form.set("Body", message);
+      }
+    } else {
+      form.set("To", to);
+      form.set("From", from);
+      form.set("Body", message);
+    }
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`,
       {
@@ -144,19 +131,23 @@ async function sendSms(to: string, message: string, creds: Record<string, string
           Authorization: `Basic ${Buffer.from(`${sid}:${authToken}`).toString("base64")}`,
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        body,
+        body: form,
       }
     );
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300);
-      return { channel: "sms", ok: false, error: `Twilio API ${res.status}: ${detail}` };
+      return {
+        channel: channel === "whatsapp" ? "whatsapp" : "sms",
+        ok: false,
+        error: `Twilio ${channel} API ${res.status}: ${detail}`,
+      };
     }
-    return { channel: "sms", ok: true };
+    return { channel: channel === "whatsapp" ? "whatsapp" : "sms", ok: true };
   } catch (e) {
     return {
-      channel: "sms",
+      channel: channel === "whatsapp" ? "whatsapp" : "sms",
       ok: false,
-      error: e instanceof Error ? e.message : "SMS send failed",
+      error: e instanceof Error ? e.message : `Twilio ${channel} send failed`,
     };
   }
 }
@@ -166,15 +157,28 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
   if (!to) return { channel: "none", ok: false, error: "Client mobile is not a valid number" };
 
   const creds = await readChannelSettings();
-  const message = buildOrderMessage(input);
+  if (!creds["twilio_account_sid"] || !creds["twilio_auth_token"] || !creds["twilio_from_number"]) {
+    return { channel: "none", ok: false, error: "No Twilio channel configured" };
+  }
 
-  if (creds["whatsapp_access_token"] && creds["whatsapp_phone_number_id"]) {
-    return sendWhatsApp(to, message, creds);
+  const message = buildOrderMessage(input);
+  const whatsappEnabled =
+    (creds["twilio_whatsapp_enabled"] || ENV_FALLBACK.twilio_whatsapp_enabled || "true") === "true";
+
+  if (whatsappEnabled) {
+    const whatsapp = await sendTwilioMessage(to, message, creds, "whatsapp");
+    if (whatsapp.ok) return whatsapp;
+    const sms = await sendTwilioMessage(to, message, creds, "sms");
+    return sms.ok
+      ? sms
+      : {
+          ...whatsapp,
+          channel: "none",
+          error: `WhatsApp failed (${whatsapp.error}); SMS failed (${sms.error})`,
+        };
   }
-  if (creds["twilio_account_sid"] && creds["twilio_auth_token"] && creds["twilio_from_number"]) {
-    return sendSms(to, message, creds);
-  }
-  return { channel: "none", ok: false, error: "No WhatsApp or SMS channel configured" };
+
+  return sendTwilioMessage(to, message, creds, "sms");
 }
 
 /** Send the "order placed" message after a client's order is created. */
