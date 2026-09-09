@@ -3,16 +3,16 @@ import { formatINR } from "../lib/money.js";
 import type { NotifyResult } from "../lib/types.js";
 
 /**
- * Outbound client notifications — all through Twilio's Messages API, which
- * handles both SMS and WhatsApp (using `whatsapp:+…` From/To channels).
- * Credentials come exclusively from the backend environment variables/secrets
- * (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`,
- * `TWILIO_WHATSAPP_ENABLED`, `TWILIO_CONTENT_SID`, `TWILIO_CONTENT_VARIABLES`,
- * `TWILIO_SMS_TEMPLATE`) — they are never stored in or read from the database.
+ * Outbound client notifications — Kapso WhatsApp (Meta Cloud API proxy).
+ * Credentials come exclusively from the backend environment variables/secrets:
+ * `KAPSO_API_KEY`, `KAPSO_PHONE_NUMBER_ID`, `KAPSO_WHATSAPP_ENABLED`,
+ * `KAPSO_WHATSAPP_TEMPLATE` (approved template name — its body variables
+ * `{{1}}…{{5}}` are mapped 1:1 to the order message parts), `KAPSO_WHATSAPP_LANGUAGE`
+ * (template language code, default en_US). They are never stored in or read
+ * from the database.
  *
- * WhatsApp is tried first when enabled; if it fails the message automatically
- * falls back to a plain SMS. When no credentials are configured the result is
- * { channel: "none" } so callers can show a copy-ready message instead.
+ * When no credentials are configured the result is { channel: "none" } so
+ * callers can show a copy-ready message instead.
  */
 
 type NotifyType = "created" | "delivered";
@@ -28,26 +28,22 @@ interface OrderMessageInput {
 }
 
 const CHANNEL_KEYS = [
-  "twilio_account_sid",
-  "twilio_auth_token",
-  "twilio_from_number",
-  "twilio_whatsapp_enabled",
-  "twilio_content_sid",
-  "twilio_content_variables",
-  "twilio_sms_template",
+  "kapso_api_key",
+  "kapso_phone_number_id",
+  "kapso_whatsapp_enabled",
+  "kapso_whatsapp_template",
+  "kapso_whatsapp_language",
 ] as const;
 
 const ENV_FALLBACK: Record<string, string | undefined> = {
-  twilio_account_sid: process.env.TWILIO_ACCOUNT_SID,
-  twilio_auth_token: process.env.TWILIO_AUTH_TOKEN,
-  twilio_from_number: process.env.TWILIO_FROM_NUMBER,
-  twilio_whatsapp_enabled: process.env.TWILIO_WHATSAPP_ENABLED,
-  twilio_content_sid: process.env.TWILIO_CONTENT_SID,
-  twilio_content_variables: process.env.TWILIO_CONTENT_VARIABLES,
-  twilio_sms_template: process.env.TWILIO_SMS_TEMPLATE,
+  kapso_api_key: process.env.KAPSO_API_KEY,
+  kapso_phone_number_id: process.env.KAPSO_PHONE_NUMBER_ID,
+  kapso_whatsapp_enabled: process.env.KAPSO_WHATSAPP_ENABLED,
+  kapso_whatsapp_template: process.env.KAPSO_WHATSAPP_TEMPLATE,
+  kapso_whatsapp_language: process.env.KAPSO_WHATSAPP_LANGUAGE,
 };
 
-/** Normalize a client mobile to E.164 with a leading "+" (Twilio requires it). */
+/** Normalize a client mobile to E.164 with a leading "+". */
 export function toE164(mobile: string): string | null {
   const digits = mobile.replace(/\D/g, "");
   if (!digits) return null;
@@ -57,11 +53,6 @@ export function toE164(mobile: string): string | null {
   if (digits.length === 13 && digits.startsWith("091")) return `+91${digits.slice(3)}`;
   if (digits.length >= 8 && digits.length <= 15) return `+${digits}`;
   return null;
-}
-
-/** Strip a stored "whatsapp:" / spaces / dashes prefix, keep E.164. */
-function cleanE164(value: string): string {
-  return value.replace(/whatsapp:/gi, "").replace(/[^\d+]/g, "");
 }
 
 export function buildOrderMessage(input: OrderMessageInput): string {
@@ -94,6 +85,39 @@ export function buildOrderMessage(input: OrderMessageInput): string {
   ].join("\n");
 }
 
+/**
+ * Parameters for the `order_update` approved template (body `{{1}}…{{5}}`):
+ *   1. client name        (Namaste <name>, …)
+ *   2. headline           (your order … placed / ready for pickup)
+ *   3. items line
+ *   4. amount line
+ *   5. closing line
+ */
+export function buildOrderTemplateParams(input: OrderMessageInput): string[] {
+  const items = input.items.map((i) => `${i.quantity}× ${i.garmentType}`).join(", ");
+  const due = Math.max(0, input.totalPaise - input.paidPaise);
+
+  if (input.type === "delivered") {
+    return [
+      input.fullName?.trim() || "Guest",
+      `your order ${input.orderNumber} is ready for pickup!`,
+      `Items: ${items}`,
+      `Total ${formatINR(input.totalPaise)} · Paid ${formatINR(input.paidPaise)}${
+        due > 0 ? ` · Balance ${formatINR(due)}` : ""
+      }`,
+      "Thank you for choosing us — see you soon!",
+    ];
+  }
+
+  return [
+    input.fullName?.trim() || "Guest",
+    `your order ${input.orderNumber} has been placed successfully.`,
+    `Items: ${items}`,
+    `Total ${formatINR(input.totalPaise)}${due > 0 ? ` · Balance due ${formatINR(due)}` : ""}`,
+    "Thank you for choosing us. We will keep you updated!",
+  ];
+}
+
 async function readChannelSettings(): Promise<Record<string, string>> {
   const map: Record<string, string> = {};
   for (const key of CHANNEL_KEYS) {
@@ -103,65 +127,100 @@ async function readChannelSettings(): Promise<Record<string, string>> {
   return map;
 }
 
-async function sendTwilioMessage(
-  to: string,
-  message: string,
-  creds: Record<string, string>,
-  channel: "whatsapp" | "sms"
-): Promise<NotifyResult> {
-  const sid = creds["twilio_account_sid"];
-  const authToken = creds["twilio_auth_token"];
-  const from = cleanE164(creds["twilio_from_number"]);
+function extractApiError(resText: string, resStatus: number): string {
   try {
-    const form = new URLSearchParams();
-    if (channel === "whatsapp") {
-      form.set("To", `whatsapp:${to}`);
-      form.set("From", `whatsapp:${from}`);
-      // WhatsApp business-initiated messages require an approved content
-      // template (ContentSid). Free-form Body only works inside the 24-hour
-      // customer-service window, so we always prefer the template when set.
-      const contentSid = creds["twilio_content_sid"]?.trim();
-      const contentVariables = creds["twilio_content_variables"]?.trim();
-      if (contentSid) {
-        form.set("ContentSid", contentSid);
-        if (contentVariables) form.set("ContentVariables", contentVariables);
-      } else {
-        form.set("Body", message);
-      }
-    } else {
-      form.set("To", to);
-      form.set("From", from);
-      // Trial accounts can only send predefined SMS template names in Body.
-      // When a template name is set, use it; otherwise free-form (upgraded
-      // accounts).
-      const smsTemplate = creds["twilio_sms_template"]?.trim();
-      form.set("Body", smsTemplate || message);
+    const parsed: unknown = JSON.parse(resText);
+    if (parsed && typeof parsed === "object" && "error" in parsed) {
+      const error = (parsed as { error?: { message?: string; code?: number | string } }).error;
+      const code = error?.code != null ? ` (code ${error.code})` : "";
+      return `${error?.message ?? "Unknown error"}${code}`;
     }
+  } catch {
+    // Fall through to raw text.
+  }
+  return resText ? resText.slice(0, 300) : `HTTP ${resStatus}`;
+}
+
+/** Send one WhatsApp message through Kapso (Meta Cloud API proxy). */
+async function sendKapsoWhatsApp(
+  toE164Value: string,
+  params: string[],
+  creds: Record<string, string>
+): Promise<NotifyResult> {
+  const apiKey = creds["kapso_api_key"];
+  const phoneNumberId = creds["kapso_phone_number_id"];
+  const template = creds["kapso_whatsapp_template"]?.trim();
+  const language = creds["kapso_whatsapp_language"]?.trim() || "en_US";
+  // Meta Cloud API expects the recipient without the leading "+".
+  const to = toE164Value.replace(/\D/g, "");
+
+  let payload: Record<string, unknown>;
+  if (template) {
+    // Business-initiated messages to clients who haven't messaged first must be
+    // an approved template (name must match `order_update`). The params are
+    // mapped 1:1 to the body variables `{{1}}…{{5}}`.
+    payload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      type: "template",
+      template: {
+        name: template,
+        language: { code: language },
+        components: [
+          {
+            type: "body",
+            parameters: params.map((text) => ({ type: "text", text })),
+          },
+        ],
+      },
+    };
+  } else {
+    // Plain text works only inside an open 24-hour customer-service window.
+    payload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      type: "text",
+      text: { preview_url: false, body: params.join("\n\n") },
+    };
+  }
+
+  try {
     const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`,
+      `https://api.kapso.ai/meta/whatsapp/v24.0/${encodeURIComponent(phoneNumberId)}/messages`,
       {
         method: "POST",
         headers: {
-          Authorization: `Basic ${Buffer.from(`${sid}:${authToken}`).toString("base64")}`,
-          "Content-Type": "application/x-www-form-urlencoded",
+          "X-API-Key": apiKey,
+          "Content-Type": "application/json",
         },
-        body: form,
+        body: JSON.stringify(payload),
       }
     );
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 300);
+    const resText = await res.text();
+    let hasApiError = false;
+    try {
+      const parsed: unknown = JSON.parse(resText);
+      hasApiError =
+        (parsed !== null && typeof parsed === "object" && "error" in parsed) ||
+        (Array.isArray(parsed) && parsed.some((p) => p && typeof p === "object" && "error" in p));
+    } catch {
+      // not JSON
+    }
+    if (!res.ok || hasApiError) {
       return {
-        channel: channel === "whatsapp" ? "whatsapp" : "sms",
+        channel: "whatsapp",
         ok: false,
-        error: `Twilio ${channel} API ${res.status}: ${detail}`,
+        error: `Kapso WhatsApp API ${res.status}: ${extractApiError(resText, res.status)}`,
       };
     }
-    return { channel: channel === "whatsapp" ? "whatsapp" : "sms", ok: true };
+    return { channel: "whatsapp", ok: true };
   } catch (e) {
     return {
-      channel: channel === "whatsapp" ? "whatsapp" : "sms",
+      channel: "whatsapp",
       ok: false,
-      error: e instanceof Error ? e.message : `Twilio ${channel} send failed`,
+      error: e instanceof Error ? e.message : "Kapso WhatsApp send failed",
     };
   }
 }
@@ -171,28 +230,15 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
   if (!to) return { channel: "none", ok: false, error: "Client mobile is not a valid number" };
 
   const creds = await readChannelSettings();
-  if (!creds["twilio_account_sid"] || !creds["twilio_auth_token"] || !creds["twilio_from_number"]) {
-    return { channel: "none", ok: false, error: "No Twilio channel configured" };
+  if (!creds["kapso_api_key"] || !creds["kapso_phone_number_id"]) {
+    return { channel: "none", ok: false, error: "No Kapso WhatsApp channel configured" };
   }
 
-  const message = buildOrderMessage(input);
-  const whatsappEnabled =
-    (creds["twilio_whatsapp_enabled"] || ENV_FALLBACK.twilio_whatsapp_enabled || "true") === "true";
-
-  if (whatsappEnabled) {
-    const whatsapp = await sendTwilioMessage(to, message, creds, "whatsapp");
-    if (whatsapp.ok) return whatsapp;
-    const sms = await sendTwilioMessage(to, message, creds, "sms");
-    return sms.ok
-      ? sms
-      : {
-          ...whatsapp,
-          channel: "none",
-          error: `WhatsApp failed (${whatsapp.error}); SMS failed (${sms.error})`,
-        };
+  if ((creds["kapso_whatsapp_enabled"] ?? "true") !== "true") {
+    return { channel: "none", ok: false, error: "WhatsApp notifications are disabled" };
   }
 
-  return sendTwilioMessage(to, message, creds, "sms");
+  return sendKapsoWhatsApp(to, buildOrderTemplateParams(input), creds);
 }
 
 /** Send the "order placed" message after a client's order is created. */

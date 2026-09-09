@@ -14,14 +14,14 @@ export interface ShopSettings {
   defaultGarmentRates: Record<string, number>;
   /** Delivery-duration presets (in days) offered when creating an order. */
   deliveryPresets: number[];
-  /** True when Twilio credentials (SID + Auth + From number) are saved. */
-  twilioConfigured: boolean;
-  /** Whether client messages go via Twilio WhatsApp (true) or plain SMS (false). */
+  /** True when Kapso WhatsApp credentials (API key + phone number ID) are configured. */
+  kapsoConfigured: boolean;
+  /** Whether client messages are enabled via Kapso WhatsApp. */
   whatsappEnabled: boolean;
-  /** Twilio sender number (E.164) used for outgoing SMS/WhatsApp, when configured. */
-  twilioFromNumber: string | null;
-  /** Optional Twilio WhatsApp content template ID (ContentSid). */
-  twilioContentSid: string | null;
+  /** Kapso Meta phone number ID used for outgoing WhatsApp messages. */
+  kapsoPhoneNumberId: string | null;
+  /** Optional approved WhatsApp template name used for business-initiated messages. */
+  kapsoTemplate: string | null;
 }
 
 export type NotifyChannel = "whatsapp" | "sms" | "none";

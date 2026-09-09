@@ -79,10 +79,10 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
       gstNumber: null,
       defaultGarmentRates: {},
       deliveryPresets: [],
-      twilioConfigured: false,
+      kapsoConfigured: false,
       whatsappEnabled: true,
-      twilioFromNumber: null,
-      twilioContentSid: null,
+      kapsoPhoneNumberId: null,
+      kapsoTemplate: null,
     };
     for (const row of rows) {
       if (row.key === WHATSAPP_BUSINESS_KEY && row.value) {
@@ -101,18 +101,16 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
     // Messaging credentials come exclusively from the backend environment
     // (Cloudflare vars / `wrangler secret put`). Never exposed for admin editing.
     const envHas = (key: string) => Boolean(process.env[key]?.trim());
-    settings.twilioConfigured =
-      envHas("TWILIO_ACCOUNT_SID") &&
-      envHas("TWILIO_AUTH_TOKEN") &&
-      envHas("TWILIO_FROM_NUMBER");
-    if (envHas("TWILIO_FROM_NUMBER")) {
-      settings.twilioFromNumber = process.env.TWILIO_FROM_NUMBER!;
+    settings.kapsoConfigured =
+      envHas("KAPSO_API_KEY") && envHas("KAPSO_PHONE_NUMBER_ID");
+    if (envHas("KAPSO_PHONE_NUMBER_ID")) {
+      settings.kapsoPhoneNumberId = process.env.KAPSO_PHONE_NUMBER_ID!;
     }
-    if (process.env.TWILIO_WHATSAPP_ENABLED) {
-      settings.whatsappEnabled = process.env.TWILIO_WHATSAPP_ENABLED === "true";
+    if (process.env.KAPSO_WHATSAPP_ENABLED) {
+      settings.whatsappEnabled = process.env.KAPSO_WHATSAPP_ENABLED === "true";
     }
-    if (envHas("TWILIO_CONTENT_SID")) {
-      settings.twilioContentSid = process.env.TWILIO_CONTENT_SID!;
+    if (envHas("KAPSO_WHATSAPP_TEMPLATE")) {
+      settings.kapsoTemplate = process.env.KAPSO_WHATSAPP_TEMPLATE!;
     }
     return ok(settings);
   } catch (e) {
