@@ -12,6 +12,11 @@ const GST_RATE_KEY = "gst_rate_percent";
 const GST_NUMBER_KEY = "gst_number";
 const GARMENT_RATES_KEY = "default_garment_rates";
 const DELIVERY_PRESETS_KEY = "delivery_presets";
+const WHATSAPP_TOKEN_KEY = "whatsapp_access_token";
+const WHATSAPP_PHONE_KEY = "whatsapp_phone_number_id";
+const TWILIO_SID_KEY = "twilio_account_sid";
+const TWILIO_AUTH_KEY = "twilio_auth_token";
+const TWILIO_FROM_KEY = "twilio_from_number";
 
 function sanitizeMobile(mobile: string): string {
   return mobile.replace(/[^\d+]/g, "");
@@ -79,6 +84,9 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
       gstNumber: null,
       defaultGarmentRates: {},
       deliveryPresets: [],
+      whatsappConfigured: false,
+      twilioConfigured: false,
+      twilioFromNumber: null,
     };
     for (const row of rows) {
       if (row.key === WHATSAPP_BUSINESS_KEY && row.value) {
@@ -92,8 +100,14 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
         settings.defaultGarmentRates = parseGarmentRates(row.value);
       } else if (row.key === DELIVERY_PRESETS_KEY) {
         settings.deliveryPresets = parseDeliveryPresets(row.value);
+      } else if (row.key === TWILIO_FROM_KEY && row.value) {
+        settings.twilioFromNumber = row.value;
       }
     }
+    const has = (key: string) => rows.some((r) => r.key === key && r.value && r.value.trim());
+    settings.whatsappConfigured = has(WHATSAPP_TOKEN_KEY) && has(WHATSAPP_PHONE_KEY);
+    settings.twilioConfigured =
+      has(TWILIO_SID_KEY) && has(TWILIO_AUTH_KEY) && has(TWILIO_FROM_KEY);
     return ok(settings);
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to load settings");
@@ -219,5 +233,50 @@ export async function updateDeliveryPresets(dto: {
     return getShopSettings();
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to save delivery presets");
+  }
+}
+
+async function upsertSetting(key: string, value: string): Promise<void> {
+  await prisma.setting.upsert({
+    where: { key },
+    update: { value },
+    create: { key, value },
+  });
+}
+
+/**
+ * Save the outbound messaging credentials.
+ * - WhatsApp Business Cloud API: access token + phone-number ID.
+ * - Twilio SMS: Account SID + Auth Token + sender number.
+ * Any field passed as a non-empty string is saved; null / "" removes it.
+ * Auth tokens are stored in the database and never returned to the client.
+ */
+export async function updateNotificationChannels(dto: {
+  whatsappAccessToken?: string | null;
+  whatsappPhoneNumberId?: string | null;
+  twilioAccountSid?: string | null;
+  twilioAuthToken?: string | null;
+  twilioFromNumber?: string | null;
+}): Promise<ServiceResult<ShopSettings>> {
+  try {
+    const pairs: [string, string | null | undefined][] = [
+      [WHATSAPP_TOKEN_KEY, dto.whatsappAccessToken],
+      [WHATSAPP_PHONE_KEY, dto.whatsappPhoneNumberId],
+      [TWILIO_SID_KEY, dto.twilioAccountSid],
+      [TWILIO_AUTH_KEY, dto.twilioAuthToken],
+      [TWILIO_FROM_KEY, dto.twilioFromNumber],
+    ];
+    for (const [key, raw] of pairs) {
+      if (raw === undefined) continue;
+      const value = raw?.trim() ?? "";
+      if (!value) {
+        await prisma.setting.deleteMany({ where: { key } });
+      } else {
+        await upsertSetting(key, value);
+      }
+    }
+    return getShopSettings();
+  } catch (e) {
+    return err(e instanceof Error ? e.message : "Failed to save notification settings");
   }
 }

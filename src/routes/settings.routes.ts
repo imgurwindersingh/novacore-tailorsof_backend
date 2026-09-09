@@ -5,6 +5,7 @@ import {
   updateDeliveryPresets,
   updateGarmentRates,
   updateGstSettings,
+  updateNotificationChannels,
   updateWhatsappBusiness,
 } from "../services/settings.service.js";
 import type { GarmentRateEntry } from "../lib/types.js";
@@ -101,6 +102,44 @@ settings.put("/delivery-presets", async (c) => {
     }
   }
   const result = await updateDeliveryPresets({ presets });
+  if (!result.ok) return c.json({ error: result.error }, 400);
+  return c.json(result.data);
+});
+
+/**
+ * PUT /api/settings/notifications
+ * Body (any subset):
+ * {
+ *   "whatsappAccessToken": "EAA…",
+ *   "whatsappPhoneNumberId": "1234567890",
+ *   "twilioAccountSid": "AC…",
+ *   "twilioAuthToken": "…",
+ *   "twilioFromNumber": "+14155550123"
+ * }
+ * Auth tokens are stored in the database and never returned. Pass null / "" to
+ * clear a value; omit a field to leave it unchanged.
+ */
+settings.put("/notifications", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const dto: {
+    whatsappAccessToken?: string | null;
+    whatsappPhoneNumberId?: string | null;
+    twilioAccountSid?: string | null;
+    twilioAuthToken?: string | null;
+    twilioFromNumber?: string | null;
+  } = {};
+  if (body && typeof body === "object") {
+    for (const key of [
+      "whatsappAccessToken",
+      "whatsappPhoneNumberId",
+      "twilioAccountSid",
+      "twilioAuthToken",
+      "twilioFromNumber",
+    ] as const) {
+      if (key in body && typeof body[key] === "string") dto[key] = body[key];
+    }
+  }
+  const result = await updateNotificationChannels(dto);
   if (!result.ok) return c.json({ error: result.error }, 400);
   return c.json(result.data);
 });

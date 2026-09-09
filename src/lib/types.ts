@@ -14,6 +14,20 @@ export interface ShopSettings {
   defaultGarmentRates: Record<string, number>;
   /** Delivery-duration presets (in days) offered when creating an order. */
   deliveryPresets: number[];
+  /** True when the WhatsApp Business Cloud API credentials are saved. */
+  whatsappConfigured: boolean;
+  /** True when the Twilio SMS credentials are saved. */
+  twilioConfigured: boolean;
+  /** Twilio sender number (E.164) used for outgoing SMS, when configured. */
+  twilioFromNumber: string | null;
+}
+
+export type NotifyChannel = "whatsapp" | "sms" | "none";
+
+export interface NotifyResult {
+  channel: NotifyChannel;
+  ok: boolean;
+  error?: string;
 }
 
 export interface GarmentRateEntry {

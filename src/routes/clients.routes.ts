@@ -12,6 +12,7 @@ import {
   updateClient,
 } from "../services/clients.service.js";
 import { createOrderForClient } from "../services/orders.service.js";
+import { notifyOrderCreated } from "../services/notify.service.js";
 import type { CreateClientWithOrderDTO, CreateOrderDTO, MeasurementsDTO, UpdateClientDTO } from "../lib/types.js";
 
 const clients = new Hono<{ Variables: AuthVariables }>();
@@ -125,7 +126,8 @@ clients.post("/", async (c) => {
 
   const result = await createClientWithOrder(dto);
   if (!result.ok) return c.json({ error: result.error }, 422);
-  return c.json(result.data, 201);
+  const notified = await notifyOrderCreated(result.data.clientId, result.data.orderId);
+  return c.json({ ...result.data, notified }, 201);
 });
 
 /**
@@ -209,7 +211,8 @@ clients.post("/:clientId/orders", async (c) => {
   if (!result.ok) {
     return c.json({ error: result.error }, result.error === "Client not found" ? 404 : 422);
   }
-  return c.json(result.data, 201);
+  const notified = await notifyOrderCreated(clientId, result.data.orderId);
+  return c.json({ ...result.data, notified }, 201);
 });
 
 export default clients;

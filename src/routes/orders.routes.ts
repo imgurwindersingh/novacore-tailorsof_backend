@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { requireAuth, type AuthVariables } from "../middleware/auth.middleware.js";
 import { markOrderDelivered, revertOrderDelivery } from "../services/orders.service.js";
+import { notifyOrderDelivered } from "../services/notify.service.js";
 
 const orders = new Hono<{ Variables: AuthVariables }>();
 
@@ -14,7 +15,8 @@ orders.patch("/:id/deliver", async (c) => {
   const id = c.req.param("id");
   const result = await markOrderDelivered(id);
   if (!result.ok) return c.json({ error: result.error }, 422);
-  return c.json(result.data);
+  const notified = await notifyOrderDelivered(result.data.orderId);
+  return c.json({ ...result.data, notified });
 });
 
 /**
