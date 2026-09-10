@@ -80,6 +80,8 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
       defaultGarmentRates: {},
       deliveryPresets: [],
       twilioConfigured: false,
+      whatsappEnabled: true,
+      whatsappFromNumber: null,
       smsFromNumber: null,
     };
     for (const row of rows) {
@@ -101,6 +103,12 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
     const envHas = (key: string) => Boolean(process.env[key]?.trim());
     settings.twilioConfigured =
       envHas("TWILIO_ACCOUNT_SID") && envHas("TWILIO_AUTH_TOKEN");
+    if (envHas("TWILIO_WHATSAPP_FROM")) {
+      settings.whatsappFromNumber = process.env.TWILIO_WHATSAPP_FROM!;
+    }
+    if (process.env.TWILIO_WHATSAPP_ENABLED) {
+      settings.whatsappEnabled = process.env.TWILIO_WHATSAPP_ENABLED === "true";
+    }
     if (envHas("TWILIO_PHONE_NUMBER")) {
       settings.smsFromNumber = process.env.TWILIO_PHONE_NUMBER!;
     }

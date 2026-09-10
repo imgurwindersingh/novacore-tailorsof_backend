@@ -16,11 +16,15 @@ export interface ShopSettings {
   deliveryPresets: number[];
   /** True when Twilio credentials (Account SID + Auth Token) are configured. */
   twilioConfigured: boolean;
+  /** Whether client messages are enabled via Twilio WhatsApp. */
+  whatsappEnabled: boolean;
+  /** Twilio WhatsApp sender number used for outgoing messages. */
+  whatsappFromNumber: string | null;
   /** Twilio phone number used as the SMS sender. */
   smsFromNumber: string | null;
 }
 
-export type NotifyChannel = "sms" | "none";
+export type NotifyChannel = "whatsapp" | "sms" | "none";
 
 export interface NotifyResult {
   channel: NotifyChannel;

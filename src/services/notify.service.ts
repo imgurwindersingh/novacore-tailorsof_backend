@@ -3,9 +3,10 @@ import { formatINR } from "../lib/money.js";
 import type { NotifyResult } from "../lib/types.js";
 
 /**
- * Outbound client notifications — Twilio SMS.
+ * Outbound client notifications — Twilio (WhatsApp first, SMS fallback).
  * Credentials come exclusively from the backend environment variables/secrets:
- * `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`.
+ * `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`,
+ * `TWILIO_WHATSAPP_FROM`, `TWILIO_WHATSAPP_ENABLED`, `TWILIO_TRIAL_MODE`.
  * They are never stored in or read from the database.
  *
  * The Twilio REST API is called directly (Basic Auth with Account SID +
@@ -30,17 +31,19 @@ const ENV_KEYS = [
   "twilio_account_sid",
   "twilio_auth_token",
   "twilio_phone_number",
-  "twilio_trial_mode",
+  "twilio_whatsapp_from",
+  "twilio_whatsapp_enabled",
 ] as const;
 
 const ENV_FALLBACK: Record<string, string | undefined> = {
   twilio_account_sid: process.env.TWILIO_ACCOUNT_SID,
   twilio_auth_token: process.env.TWILIO_AUTH_TOKEN,
   twilio_phone_number: process.env.TWILIO_PHONE_NUMBER,
-  twilio_trial_mode: process.env.TWILIO_TRIAL_MODE,
+  twilio_whatsapp_from: process.env.TWILIO_WHATSAPP_FROM,
+  twilio_whatsapp_enabled: process.env.TWILIO_WHATSAPP_ENABLED,
 };
 
-/** Normalize a client mobile to E.164 (Twilio format, e.g. `+919876543210`). */
+/** Normalize a client mobile to E.164 (e.g. `+919876543210`). */
 export function toE164(mobile: string): string {
   const digits = mobile.replace(/\D/g, "");
   let number: string;
@@ -51,6 +54,14 @@ export function toE164(mobile: string): string {
   else number = digits;
   if (!number || number.length < 8) return "";
   return `+${number}`;
+}
+
+/** Add the `whatsapp:` address-prefix used by the Twilio Messages API. */
+function withChannelPrefix(number: string, channel: "whatsapp" | "sms"): string {
+  if (channel === "whatsapp" && !number.toLowerCase().startsWith("whatsapp:")) {
+    return `whatsapp:${number}`;
+  }
+  return number;
 }
 
 export function buildOrderMessage(input: OrderMessageInput): string {
@@ -101,11 +112,12 @@ function extractError(json: string, httpStatus: number): string {
   }
 }
 
-/** Send one SMS through the Twilio Messages API. */
-export async function sendSms(
+/** Send one message through the Twilio Messages API on a given channel. */
+async function sendTwilio(
   to: string,
   from: string,
-  text: string,
+  body: string,
+  channel: "whatsapp" | "sms",
   creds: Record<string, string>
 ): Promise<NotifyResult> {
   const accountSid = creds["twilio_account_sid"];
@@ -114,7 +126,11 @@ export async function sendSms(
     return { channel: "none", ok: false, error: "Twilio credentials missing" };
   }
   const auth = `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`;
-  const body = new URLSearchParams({ To: to, From: from, Body: text });
+  const formBody = new URLSearchParams({
+    To: withChannelPrefix(to, channel),
+    From: withChannelPrefix(from, channel),
+    Body: body,
+  });
 
   try {
     const res = await fetch(
@@ -126,24 +142,24 @@ export async function sendSms(
           "Content-Type": "application/x-www-form-urlencoded",
           Accept: "application/json",
         },
-        body: body.toString(),
+        body: formBody.toString(),
       }
     );
     const resText = await res.text();
     if (!res.ok) {
       return {
-        channel: "sms",
+        channel,
         ok: false,
-        error: `Twilio SMS API ${res.status}: ${extractError(resText, res.status)}`,
+        error: `Twilio ${channel} API ${res.status}: ${extractError(resText, res.status)}`,
         status: res.status,
       };
     }
-    return { channel: "sms", ok: true };
+    return { channel, ok: true };
   } catch (e) {
     return {
-      channel: "sms",
+      channel,
       ok: false,
-      error: e instanceof Error ? e.message : "Twilio SMS send failed",
+      error: e instanceof Error ? e.message : `Twilio ${channel} send failed`,
     };
   }
 }
@@ -153,8 +169,8 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
   if (!to) return { channel: "none", ok: false, error: "Client mobile is not a valid number" };
 
   const creds = await readChannelSettings();
-  const from = creds["twilio_phone_number"];
-  if (!from || !creds["twilio_account_sid"] || !creds["twilio_auth_token"]) {
+  const smsFrom = creds["twilio_phone_number"];
+  if (!smsFrom || !creds["twilio_account_sid"] || !creds["twilio_auth_token"]) {
     return {
       channel: "none",
       ok: false,
@@ -162,17 +178,48 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
     };
   }
 
-  // During a Twilio trial, custom message bodies are blocked and the `Body`
-  // must be a predefined template name. After upgrading, set TWILIO_TRIAL_MODE
-  // to false (or remove it) to send the full custom order message.
-  const trial = (creds["twilio_trial_mode"] ?? "false") === "true";
-  const body = trial
-    ? input.type === "delivered"
-      ? "sms_delivery_updates"
-      : "sms_order_confirmation"
-    : buildOrderMessage(input);
+  // Trial accounts reject custom message bodies ("predefined templates only").
+  // We always try the full custom order message first, then automatically fall
+  // back to Twilio's predefined template when the account is still on trial.
+  const customBody = buildOrderMessage(input);
+  const trialTemplateBody =
+    input.type === "delivered" ? "sms_delivery_updates" : "sms_order_confirmation";
 
-  return sendSms(to, from, body, creds);
+  const isTrialRestriction = (result: NotifyResult) =>
+    result.ok === false &&
+    (/template/i.test(result.error ?? "") || /21654|572006/i.test(result.error ?? ""));
+
+  async function sendSmsWithBody(body: string): Promise<NotifyResult> {
+    return sendTwilio(to, smsFrom, body, "sms", creds);
+  }
+
+  const whatsappEnabled =
+    (creds["twilio_whatsapp_enabled"] ?? "true") === "true";
+  const whatsappFrom = creds["twilio_whatsapp_from"]?.trim();
+
+  // WhatsApp first, SMS fallback (matches the previous dual-channel behavior).
+  if (whatsappEnabled && whatsappFrom) {
+    const whatsapp = await sendTwilio(to, whatsappFrom, customBody, "whatsapp", creds);
+    if (whatsapp.ok) return whatsapp;
+
+    let sms = await sendSmsWithBody(customBody);
+    if (!sms.ok && isTrialRestriction(sms)) {
+      sms = await sendSmsWithBody(trialTemplateBody);
+    }
+    return sms.ok
+      ? sms
+      : {
+          ...whatsapp,
+          channel: "none" as const,
+          error: `WhatsApp failed (${whatsapp.error}); SMS failed (${sms.error})`,
+        };
+  }
+
+  let sms = await sendSmsWithBody(customBody);
+  if (!sms.ok && isTrialRestriction(sms)) {
+    sms = await sendSmsWithBody(trialTemplateBody);
+  }
+  return sms;
 }
 
 /** Send the "order placed" message after a client's order is created. */
