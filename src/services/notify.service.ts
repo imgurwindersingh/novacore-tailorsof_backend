@@ -23,6 +23,8 @@ interface OrderMessageInput {
   items: { garmentType: string; quantity: number }[];
   totalPaise: number;
   paidPaise: number;
+  /** Public profile URL shown to the client (e.g. /p/:clientId). */
+  publicProfileUrl?: string;
 }
 
 const BRAND_NAME = "Novacore Tailorsoft";
@@ -84,8 +86,17 @@ export function buildOrderMessage(input: OrderMessageInput): string {
     `Welcome to ${BRAND_NAME}! Your order ${input.orderNumber} has been placed successfully.`,
     `Items: ${items}`,
     `Total: ${formatINR(input.totalPaise)}${due > 0 ? ` | Balance due: ${formatINR(due)}` : ""}`,
+    `View your profile: ${input.publicProfileUrl ?? ""}`,
     "Thank you for choosing us. We will keep you updated!",
-  ].join("\n");
+  ]
+    .filter((line) => line.trim() !== "")
+    .join("\n");
+}
+
+/** Public client profile URL shown to the client in the notification. */
+export function publicProfileUrl(clientId: string): string {
+  const base = (process.env.FRONTEND_URL || "https://novacore-tailorsof-frontend.gora55039.workers.dev").replace(/\/$/, "");
+  return `${base}/p/${clientId}`;
 }
 
 async function readChannelSettings(): Promise<Record<string, string>> {
@@ -236,6 +247,7 @@ export async function notifyOrderCreated(
     const client = await prisma.client.findUnique({
       where: { id: clientId },
       select: {
+        id: true,
         mobile: true,
         fullName: true,
         orders: {
@@ -260,6 +272,7 @@ export async function notifyOrderCreated(
       items: order.items,
       totalPaise: order.totalPaise,
       paidPaise: paid,
+      publicProfileUrl: publicProfileUrl(client.id),
     });
   } catch (e) {
     return {
@@ -278,7 +291,7 @@ export async function notifyOrderDelivered(orderId: string): Promise<NotifyResul
       select: {
         orderNumber: true,
         totalPaise: true,
-        client: { select: { mobile: true, fullName: true } },
+        client: { select: { id: true, mobile: true, fullName: true } },
         items: { select: { garmentType: true, quantity: true } },
         payments: { select: { amountPaise: true } },
       },
@@ -293,6 +306,7 @@ export async function notifyOrderDelivered(orderId: string): Promise<NotifyResul
       items: order.items,
       totalPaise: order.totalPaise,
       paidPaise: paid,
+      publicProfileUrl: publicProfileUrl(order.client.id),
     });
   } catch (e) {
     return {
