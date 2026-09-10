@@ -3,16 +3,15 @@ import { formatINR } from "../lib/money.js";
 import type { NotifyResult } from "../lib/types.js";
 
 /**
- * Outbound client notifications — Kapso WhatsApp (Meta Cloud API proxy).
+ * Outbound client notifications — Vonage Messages API (SMS + WhatsApp).
  * Credentials come exclusively from the backend environment variables/secrets:
- * `KAPSO_API_KEY`, `KAPSO_PHONE_NUMBER_ID`, `KAPSO_WHATSAPP_ENABLED`,
- * `KAPSO_WHATSAPP_TEMPLATE` / `KAPSO_WHATSAPP_DELIVERY_TEMPLATE` (approved
- * template names — body `{{1}}` = order number, `{{2}}` = amount),
- * `KAPSO_WHATSAPP_LANGUAGE` (template language code, default en_US). They are
- * never stored in or read from the database.
+ * `VONAGE_API_KEY`, `VONAGE_API_SECRET`, `VONAGE_WHATSAPP_FROM`,
+ * `VONAGE_SMS_FROM`, `VONAGE_WHATSAPP_ENABLED`, `VONAGE_SANDBOX`.
+ * They are never stored in or read from the database.
  *
- * When no credentials are configured the result is { channel: "none" } so
- * callers can show a copy-ready message instead.
+ * WhatsApp is tried first when enabled; if it fails the message falls back to
+ * SMS when a sender is configured. When no credentials are configured the
+ * result is { channel: "none" } so callers can show a copy-ready message.
  */
 
 type NotifyType = "created" | "delivered";
@@ -27,33 +26,35 @@ interface OrderMessageInput {
   paidPaise: number;
 }
 
+const BRAND_NAME = "Novacore Tailorsoft";
+
 const CHANNEL_KEYS = [
-  "kapso_api_key",
-  "kapso_phone_number_id",
-  "kapso_whatsapp_enabled",
-  "kapso_whatsapp_template",
-  "kapso_whatsapp_delivery_template",
-  "kapso_whatsapp_language",
+  "vonage_api_key",
+  "vonage_api_secret",
+  "vonage_whatsapp_from",
+  "vonage_sms_from",
+  "vonage_whatsapp_enabled",
+  "vonage_sandbox",
 ] as const;
 
 const ENV_FALLBACK: Record<string, string | undefined> = {
-  kapso_api_key: process.env.KAPSO_API_KEY,
-  kapso_phone_number_id: process.env.KAPSO_PHONE_NUMBER_ID,
-  kapso_whatsapp_enabled: process.env.KAPSO_WHATSAPP_ENABLED,
-  kapso_whatsapp_template: process.env.KAPSO_WHATSAPP_TEMPLATE,
-  kapso_whatsapp_delivery_template: process.env.KAPSO_WHATSAPP_DELIVERY_TEMPLATE,
-  kapso_whatsapp_language: process.env.KAPSO_WHATSAPP_LANGUAGE,
+  vonage_api_key: process.env.VONAGE_API_KEY,
+  vonage_api_secret: process.env.VONAGE_API_SECRET,
+  vonage_whatsapp_from: process.env.VONAGE_WHATSAPP_FROM,
+  vonage_sms_from: process.env.VONAGE_SMS_FROM,
+  vonage_whatsapp_enabled: process.env.VONAGE_WHATSAPP_ENABLED,
+  vonage_sandbox: process.env.VONAGE_SANDBOX,
 };
 
-/** Normalize a client mobile to E.164 with a leading "+". */
+/** Normalize a client mobile to E.164 without the leading "+" (Vonage format). */
 export function toE164(mobile: string): string | null {
   const digits = mobile.replace(/\D/g, "");
   if (!digits) return null;
-  if (digits.length === 10) return `+91${digits}`;
-  if (digits.length === 11 && digits.startsWith("0")) return `+91${digits.slice(1)}`;
-  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
-  if (digits.length === 13 && digits.startsWith("091")) return `+91${digits.slice(3)}`;
-  if (digits.length >= 8 && digits.length <= 15) return `+${digits}`;
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
+  if (digits.length === 13 && digits.startsWith("091")) return `91${digits.slice(3)}`;
+  if (digits.length >= 8 && digits.length <= 15) return digits;
   return null;
 }
 
@@ -66,7 +67,7 @@ export function buildOrderMessage(input: OrderMessageInput): string {
     return [
       greeting,
       "",
-      `Your order ${input.orderNumber} at Bluestar Tailors is ready for pickup! 🎉`,
+      `Your order ${input.orderNumber} at ${BRAND_NAME} is ready for pickup! 🎉`,
       `📦 ${items}`,
       `💰 Total ${formatINR(input.totalPaise)} · Paid ${formatINR(input.paidPaise)}${
         due > 0 ? ` · Balance ${formatINR(due)}` : ""
@@ -79,31 +80,12 @@ export function buildOrderMessage(input: OrderMessageInput): string {
   return [
     greeting,
     "",
-    `Welcome to Bluestar Tailors! Your order ${input.orderNumber} has been placed successfully.`,
+    `Welcome to ${BRAND_NAME}! Your order ${input.orderNumber} has been placed successfully.`,
     `📦 ${items}`,
     `💰 Total ${formatINR(input.totalPaise)}${due > 0 ? ` · Balance due ${formatINR(due)}` : ""}`,
     "",
     "Thank you for choosing us. We will keep you updated! ✨",
   ].join("\n");
-}
-
-/**
- * Parameters for the approved templates (`order_placed_v3` / `order_ready_v2`,
- * body `{{1}} = order number`, `{{2}} = amount`).
- */
-export function buildOrderTemplateParams(input: OrderMessageInput): string[] {
-  const due = Math.max(0, input.totalPaise - input.paidPaise);
-
-  const amount =
-    input.type === "delivered"
-      ? `Total ${formatINR(input.totalPaise)} · Paid ${formatINR(input.paidPaise)}${
-          due > 0 ? ` · Balance ${formatINR(due)}` : ""
-        }`
-      : `Total ${formatINR(input.totalPaise)}${
-          due > 0 ? ` · Balance due ${formatINR(due)}` : ""
-        }`;
-
-  return [input.orderNumber, amount];
 }
 
 async function readChannelSettings(): Promise<Record<string, string>> {
@@ -115,101 +97,68 @@ async function readChannelSettings(): Promise<Record<string, string>> {
   return map;
 }
 
-function extractApiError(resText: string, resStatus: number): string {
+function extractError(json: string, httpStatus: number): string {
   try {
-    const parsed: unknown = JSON.parse(resText);
-    if (parsed && typeof parsed === "object" && "error" in parsed) {
-      const error = (parsed as { error?: { message?: string; code?: number | string } }).error;
-      const code = error?.code != null ? ` (code ${error.code})` : "";
-      return `${error?.message ?? "Unknown error"}${code}`;
-    }
+    const parsed = JSON.parse(json) as {
+      title?: string;
+      message?: string;
+      detail?: string;
+      error?: string;
+    };
+    return parsed.title ?? parsed.message ?? parsed.detail ?? parsed.error ?? `HTTP ${httpStatus}`;
   } catch {
-    // Fall through to raw text.
+    return (json || `HTTP ${httpStatus}`).slice(0, 300);
   }
-  return resText ? resText.slice(0, 300) : `HTTP ${resStatus}`;
 }
 
-/** Send one WhatsApp message through Kapso (Meta Cloud API proxy). */
-async function sendKapsoWhatsApp(
-  toE164Value: string,
-  templateName: string | undefined,
-  params: string[],
+/** Send one text message through the Vonage Messages API. */
+async function sendVonage(
+  to: string,
+  from: string,
+  text: string,
+  channel: "whatsapp" | "sms",
   creds: Record<string, string>
 ): Promise<NotifyResult> {
-  const apiKey = creds["kapso_api_key"];
-  const phoneNumberId = creds["kapso_phone_number_id"];
-  const template = templateName?.trim();
-  const language = creds["kapso_whatsapp_language"]?.trim() || "en_US";
-  // Meta Cloud API expects the recipient without the leading "+".
-  const to = toE164Value.replace(/\D/g, "");
-
-  let payload: Record<string, unknown>;
-  if (template) {
-    // Business-initiated messages to clients who haven't messaged first must be
-    // an approved template (`order_placed_v3` / `order_ready_v2`). The params
-    // are mapped 1:1: {{1}} = order number, {{2}} = amount.
-    payload = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "template",
-      template: {
-        name: template,
-        language: { code: language },
-        components: [
-          {
-            type: "body",
-            parameters: params.map((text) => ({ type: "text", text })),
-          },
-        ],
-      },
-    };
-  } else {
-    // Plain text works only inside an open 24-hour customer-service window.
-    payload = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "text",
-      text: { preview_url: false, body: params.join("\n\n") },
-    };
-  }
+  const apiKey = creds["vonage_api_key"];
+  const apiSecret = creds["vonage_api_secret"];
+  // WhatsApp runs on the sandbox endpoint until a WhatsApp Business Account is
+  // linked (then set VONAGE_SANDBOX=false). SMS always uses the production
+  // endpoint — the sandbox only reaches whitelisted recipients.
+  const sandbox = channel === "whatsapp" && (creds["vonage_sandbox"] || "true") === "true";
+  const baseUrl = sandbox
+    ? "https://messages-sandbox.nexmo.com/v1/messages"
+    : "https://api.nexmo.com/v1/messages";
 
   try {
-    const res = await fetch(
-      `https://api.kapso.ai/meta/whatsapp/v24.0/${encodeURIComponent(phoneNumberId)}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "X-API-Key": apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }
-    );
+    const res = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to,
+        message_type: "text",
+        text,
+        channel,
+      }),
+    });
     const resText = await res.text();
-    let hasApiError = false;
-    try {
-      const parsed: unknown = JSON.parse(resText);
-      hasApiError =
-        (parsed !== null && typeof parsed === "object" && "error" in parsed) ||
-        (Array.isArray(parsed) && parsed.some((p) => p && typeof p === "object" && "error" in p));
-    } catch {
-      // not JSON
-    }
-    if (!res.ok || hasApiError) {
+    if (!res.ok) {
       return {
-        channel: "whatsapp",
+        channel,
         ok: false,
-        error: `Kapso WhatsApp API ${res.status}: ${extractApiError(resText, res.status)}`,
+        error: `Vonage ${channel} API ${res.status}: ${extractError(resText, res.status)}`,
       };
     }
-    return { channel: "whatsapp", ok: true };
+    return { channel, ok: true };
   } catch (e) {
     return {
-      channel: "whatsapp",
+      channel,
       ok: false,
-      error: e instanceof Error ? e.message : "Kapso WhatsApp send failed",
+      error: e instanceof Error ? e.message : `Vonage ${channel} send failed`,
     };
   }
 }
@@ -219,20 +168,39 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
   if (!to) return { channel: "none", ok: false, error: "Client mobile is not a valid number" };
 
   const creds = await readChannelSettings();
-  if (!creds["kapso_api_key"] || !creds["kapso_phone_number_id"]) {
-    return { channel: "none", ok: false, error: "No Kapso WhatsApp channel configured" };
+  if (!creds["vonage_api_key"] || !creds["vonage_api_secret"]) {
+    return { channel: "none", ok: false, error: "No Vonage channel configured" };
   }
 
-  if ((creds["kapso_whatsapp_enabled"] ?? "true") !== "true") {
-    return { channel: "none", ok: false, error: "WhatsApp notifications are disabled" };
+  const message = buildOrderMessage(input);
+  const whatsappEnabled =
+    (creds["vonage_whatsapp_enabled"] ?? "true") === "true";
+  const whatsappFrom = creds["vonage_whatsapp_from"]?.trim();
+  const smsFrom = creds["vonage_sms_from"]?.trim();
+
+  if (whatsappEnabled && whatsappFrom) {
+    const whatsapp = await sendVonage(to, whatsappFrom, message, "whatsapp", creds);
+    if (whatsapp.ok) return whatsapp;
+    if (smsFrom) {
+      const sms = await sendVonage(to, smsFrom, message, "sms", creds);
+      return sms.ok
+        ? sms
+        : {
+            ...whatsapp,
+            channel: "none" as const,
+            error: `WhatsApp failed (${whatsapp.error}); SMS failed (${sms.error})`,
+          };
+    }
+    return whatsapp;
   }
 
-  const template =
-    input.type === "delivered"
-      ? (creds["kapso_whatsapp_delivery_template"] ?? "").trim()
-      : (creds["kapso_whatsapp_template"] ?? "").trim();
+  if (smsFrom) return sendVonage(to, smsFrom, message, "sms", creds);
 
-  return sendKapsoWhatsApp(to, template || undefined, buildOrderTemplateParams(input), creds);
+  return {
+    channel: "none",
+    ok: false,
+    error: "Nothing configured: set VONAGE_WHATSAPP_FROM or VONAGE_SMS_FROM",
+  };
 }
 
 /** Send the "order placed" message after a client's order is created. */

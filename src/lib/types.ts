@@ -14,14 +14,14 @@ export interface ShopSettings {
   defaultGarmentRates: Record<string, number>;
   /** Delivery-duration presets (in days) offered when creating an order. */
   deliveryPresets: number[];
-  /** True when Kapso WhatsApp credentials (API key + phone number ID) are configured. */
-  kapsoConfigured: boolean;
-  /** Whether client messages are enabled via Kapso WhatsApp. */
+  /** True when Vonage Messages API credentials (API key + secret) are configured. */
+  vonageConfigured: boolean;
+  /** Whether client messages are enabled via Vonage WhatsApp. */
   whatsappEnabled: boolean;
-  /** Kapso Meta phone number ID used for outgoing WhatsApp messages. */
-  kapsoPhoneNumberId: string | null;
-  /** Optional approved WhatsApp template name used for business-initiated messages. */
-  kapsoTemplate: string | null;
+  /** Vonage WhatsApp sender number used for outgoing messages. */
+  whatsappFromNumber: string | null;
+  /** Vonage SMS sender (number or alphanumeric) used when WhatsApp is unavailable. */
+  smsFromNumber: string | null;
 }
 
 export type NotifyChannel = "whatsapp" | "sms" | "none";

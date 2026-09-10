@@ -79,10 +79,10 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
       gstNumber: null,
       defaultGarmentRates: {},
       deliveryPresets: [],
-      kapsoConfigured: false,
+      vonageConfigured: false,
       whatsappEnabled: true,
-      kapsoPhoneNumberId: null,
-      kapsoTemplate: null,
+      whatsappFromNumber: null,
+      smsFromNumber: null,
     };
     for (const row of rows) {
       if (row.key === WHATSAPP_BUSINESS_KEY && row.value) {
@@ -101,16 +101,16 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
     // Messaging credentials come exclusively from the backend environment
     // (Cloudflare vars / `wrangler secret put`). Never exposed for admin editing.
     const envHas = (key: string) => Boolean(process.env[key]?.trim());
-    settings.kapsoConfigured =
-      envHas("KAPSO_API_KEY") && envHas("KAPSO_PHONE_NUMBER_ID");
-    if (envHas("KAPSO_PHONE_NUMBER_ID")) {
-      settings.kapsoPhoneNumberId = process.env.KAPSO_PHONE_NUMBER_ID!;
+    settings.vonageConfigured =
+      envHas("VONAGE_API_KEY") && envHas("VONAGE_API_SECRET");
+    if (envHas("VONAGE_WHATSAPP_FROM")) {
+      settings.whatsappFromNumber = process.env.VONAGE_WHATSAPP_FROM!;
     }
-    if (process.env.KAPSO_WHATSAPP_ENABLED) {
-      settings.whatsappEnabled = process.env.KAPSO_WHATSAPP_ENABLED === "true";
+    if (process.env.VONAGE_WHATSAPP_ENABLED) {
+      settings.whatsappEnabled = process.env.VONAGE_WHATSAPP_ENABLED === "true";
     }
-    if (envHas("KAPSO_WHATSAPP_TEMPLATE")) {
-      settings.kapsoTemplate = process.env.KAPSO_WHATSAPP_TEMPLATE!;
+    if (envHas("VONAGE_SMS_FROM")) {
+      settings.smsFromNumber = process.env.VONAGE_SMS_FROM!;
     }
     return ok(settings);
   } catch (e) {
