@@ -83,6 +83,7 @@ async function getJwt(creds: Record<string, string>): Promise<string> {
     .setProtectedHeader({ alg: "RS256", typ: "JWT" })
     .setIssuedAt()
     .setExpirationTime("5m")
+    .setJti(crypto.randomUUID())
     .sign(privateKey);
 
   const exp = now + 300;
