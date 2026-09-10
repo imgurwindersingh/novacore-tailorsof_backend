@@ -14,25 +14,21 @@ export interface ShopSettings {
   defaultGarmentRates: Record<string, number>;
   /** Delivery-duration presets (in days) offered when creating an order. */
   deliveryPresets: number[];
-  /** True when Twilio credentials (Account SID + Auth Token) are configured. */
-  twilioConfigured: boolean;
-  /** Whether client messages are enabled via Twilio WhatsApp. */
+  /** True when Infobip credentials (API key + base URL) are configured. */
+  infobipConfigured: boolean;
+  /** Whether client messages are enabled via Infobip WhatsApp. */
   whatsappEnabled: boolean;
-  /** Twilio WhatsApp sender number used for outgoing messages. */
+  /** Infobip WhatsApp sender number used for outgoing messages. */
   whatsappFromNumber: string | null;
-  /** Twilio phone number used as the SMS sender. */
-  smsFromNumber: string | null;
 }
 
-export type NotifyChannel = "whatsapp" | "sms" | "none";
+export type NotifyChannel = "whatsapp" | "none";
 
 export interface NotifyResult {
   channel: NotifyChannel;
   ok: boolean;
   error?: string;
   status?: number;
-  /** Set when more than one channel was delivered (e.g. WhatsApp + SMS). */
-  channels?: NotifyChannel[];
 }
 
 export interface GarmentRateEntry {

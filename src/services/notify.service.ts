@@ -3,14 +3,13 @@ import { formatINR } from "../lib/money.js";
 import type { NotifyResult } from "../lib/types.js";
 
 /**
- * Outbound client notifications — Twilio (WhatsApp first, SMS fallback).
+ * Outbound client notifications — Infobip WhatsApp API.
  * Credentials come exclusively from the backend environment variables/secrets:
- * `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`,
- * `TWILIO_WHATSAPP_FROM`, `TWILIO_WHATSAPP_ENABLED`, `TWILIO_TRIAL_MODE`.
- * They are never stored in or read from the database.
+ * `INFOBIP_API_KEY`, `INFOBIP_BASE_URL`, `INFOBIP_WHATSAPP_FROM`,
+ * `INFOBIP_WHATSAPP_ENABLED`. They are never stored in or read from the database.
  *
- * The Twilio REST API is called directly (Basic Auth with Account SID +
- * Auth Token) so no SDK dependency is required on Cloudflare Workers.
+ * The Infobip REST API is called directly (App authorization header) so no
+ * SDK dependency is required on Cloudflare Workers.
  */
 
 type NotifyType = "created" | "delivered";
@@ -30,19 +29,17 @@ interface OrderMessageInput {
 const BRAND_NAME = "Novacore Tailorsoft";
 
 const ENV_KEYS = [
-  "twilio_account_sid",
-  "twilio_auth_token",
-  "twilio_phone_number",
-  "twilio_whatsapp_from",
-  "twilio_whatsapp_enabled",
+  "infobip_api_key",
+  "infobip_base_url",
+  "infobip_whatsapp_from",
+  "infobip_whatsapp_enabled",
 ] as const;
 
 const ENV_FALLBACK: Record<string, string | undefined> = {
-  twilio_account_sid: process.env.TWILIO_ACCOUNT_SID,
-  twilio_auth_token: process.env.TWILIO_AUTH_TOKEN,
-  twilio_phone_number: process.env.TWILIO_PHONE_NUMBER,
-  twilio_whatsapp_from: process.env.TWILIO_WHATSAPP_FROM,
-  twilio_whatsapp_enabled: process.env.TWILIO_WHATSAPP_ENABLED,
+  infobip_api_key: process.env.INFOBIP_API_KEY,
+  infobip_base_url: process.env.INFOBIP_BASE_URL,
+  infobip_whatsapp_from: process.env.INFOBIP_WHATSAPP_FROM,
+  infobip_whatsapp_enabled: process.env.INFOBIP_WHATSAPP_ENABLED,
 };
 
 /** Normalize a client mobile to E.164 (e.g. `+919876543210`). */
@@ -56,14 +53,6 @@ export function toE164(mobile: string): string {
   else number = digits;
   if (!number || number.length < 8) return "";
   return `+${number}`;
-}
-
-/** Add the `whatsapp:` address-prefix used by the Twilio Messages API. */
-function withChannelPrefix(number: string, channel: "whatsapp" | "sms"): string {
-  if (channel === "whatsapp" && !number.toLowerCase().startsWith("whatsapp:")) {
-    return `whatsapp:${number}`;
-  }
-  return number;
 }
 
 export function buildOrderMessage(input: OrderMessageInput): string {
@@ -112,7 +101,7 @@ export function publicProfileUrl(clientId: string): string {
   return `${base}/p/${clientId}`;
 }
 
-async function readChannelSettings(): Promise<Record<string, string>> {
+async function readMessageSettings(): Promise<Record<string, string>> {
   const map: Record<string, string> = {};
   for (const key of ENV_KEYS) {
     const value = ENV_FALLBACK[key]?.trim();
@@ -124,66 +113,65 @@ async function readChannelSettings(): Promise<Record<string, string>> {
 function extractError(json: string, httpStatus: number): string {
   try {
     const parsed = JSON.parse(json) as {
+      requestError?: { serviceException?: { text?: string } };
       message?: string;
-      code?: number | string;
-      more_info?: string;
     };
-    return parsed.message
-      ? `${parsed.message}${parsed.code ? ` (code ${parsed.code})` : ""}`
-      : `HTTP ${httpStatus}`;
+    const message =
+      parsed.requestError?.serviceException?.text ??
+      (typeof parsed.message === "string" ? parsed.message : null);
+    return message ?? `HTTP ${httpStatus}`;
   } catch {
     return (json || `HTTP ${httpStatus}`).slice(0, 300);
   }
 }
 
-/** Send one message through the Twilio Messages API on a given channel. */
-async function sendTwilio(
+/**
+ * Send one WhatsApp message through the Infobip Messages API.
+ * `from` is the registered WhatsApp Business sender number (international
+ * MSISDN, e.g. `919876543210`). `to` is the recipient in international format.
+ */
+async function sendInfobipWhatsApp(
   to: string,
   from: string,
-  body: string,
-  channel: "whatsapp" | "sms",
+  text: string,
   creds: Record<string, string>
 ): Promise<NotifyResult> {
-  const accountSid = creds["twilio_account_sid"];
-  const authToken = creds["twilio_auth_token"];
-  if (!accountSid || !authToken) {
-    return { channel: "none", ok: false, error: "Twilio credentials missing" };
+  const apiKey = creds["infobip_api_key"];
+  const baseUrl = creds["infobip_base_url"];
+  if (!apiKey || !baseUrl) {
+    return { channel: "none", ok: false, error: "Infobip credentials missing" };
   }
-  const auth = `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`;
-  const formBody = new URLSearchParams({
-    To: withChannelPrefix(to, channel),
-    From: withChannelPrefix(from, channel),
-    Body: body,
-  });
+  const destination = to.replace(/^\+/, "");
 
   try {
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: auth,
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: formBody.toString(),
-      }
-    );
+    const res = await fetch(`https://${baseUrl}/whatsapp/1/message/text`, {
+      method: "POST",
+      headers: {
+        Authorization: `App ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: destination,
+        content: { text },
+      }),
+    });
     const resText = await res.text();
     if (!res.ok) {
       return {
-        channel,
+        channel: "whatsapp",
         ok: false,
-        error: `Twilio ${channel} API ${res.status}: ${extractError(resText, res.status)}`,
+        error: `Infobip WhatsApp API ${res.status}: ${extractError(resText, res.status)}`,
         status: res.status,
       };
     }
-    return { channel, ok: true };
+    return { channel: "whatsapp", ok: true };
   } catch (e) {
     return {
-      channel,
+      channel: "whatsapp",
       ok: false,
-      error: e instanceof Error ? e.message : `Twilio ${channel} send failed`,
+      error: e instanceof Error ? e.message : "Infobip WhatsApp send failed",
     };
   }
 }
@@ -192,63 +180,20 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
   const to = toE164(input.mobile);
   if (!to) return { channel: "none", ok: false, error: "Client mobile is not a valid number" };
 
-  const creds = await readChannelSettings();
-  const smsFrom = creds["twilio_phone_number"];
-  if (!smsFrom || !creds["twilio_account_sid"] || !creds["twilio_auth_token"]) {
+  const creds = await readMessageSettings();
+  const from = creds["infobip_whatsapp_from"];
+  if (!from || !creds["infobip_api_key"] || !creds["infobip_base_url"]) {
     return {
       channel: "none",
       ok: false,
-      error: "Nothing configured: set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER",
+      error: "WhatsApp not configured: set INFOBIP_API_KEY, INFOBIP_BASE_URL and INFOBIP_WHATSAPP_FROM",
     };
   }
-
-  // Trial accounts reject custom message bodies ("predefined templates only").
-  // We always try the full custom order message first, then automatically fall
-  // back to Twilio's predefined template when the account is still on trial.
-  const customBody = buildOrderMessage(input);
-  const trialTemplateBody =
-    input.type === "delivered" ? "sms_delivery_updates" : "sms_order_confirmation";
-
-  const isTrialRestriction = (result: NotifyResult) =>
-    result.ok === false &&
-    (/template/i.test(result.error ?? "") || /21654|572006/i.test(result.error ?? ""));
-
-  async function sendSms(): Promise<NotifyResult> {
-    let sms = await sendTwilio(to, smsFrom, customBody, "sms", creds);
-    if (!sms.ok && isTrialRestriction(sms)) {
-      sms = await sendTwilio(to, smsFrom, trialTemplateBody, "sms", creds);
-    }
-    return sms;
+  if ((creds["infobip_whatsapp_enabled"] ?? "true") !== "true") {
+    return { channel: "none", ok: false, error: "WhatsApp messaging is disabled" };
   }
 
-  const whatsappEnabled =
-    (creds["twilio_whatsapp_enabled"] ?? "true") === "true";
-  const whatsappFrom = creds["twilio_whatsapp_from"]?.trim();
-
-  // Send WhatsApp AND SMS together so the client gets both messages.
-  if (whatsappEnabled && whatsappFrom) {
-    const [whatsapp, sms] = await Promise.all([
-      sendTwilio(to, whatsappFrom, customBody, "whatsapp", creds),
-      sendSms(),
-    ]);
-    const sent = (["whatsapp", "sms"] as const).filter(
-      (ch) => (ch === "whatsapp" ? whatsapp.ok : sms.ok)
-    );
-    if (sent.length > 0) {
-      return {
-        channel: sent.length === 2 ? "whatsapp" : sent[0],
-        ok: true,
-        ...(sent.length === 2 ? { channels: ["whatsapp", "sms"] as const } : {}),
-      };
-    }
-    return {
-      channel: "none",
-      ok: false,
-      error: `WhatsApp failed (${whatsapp.error}); SMS failed (${sms.error})`,
-    };
-  }
-
-  return sendSms();
+  return sendInfobipWhatsApp(to, from, buildOrderMessage(input), creds);
 }
 
 /** Send the "order placed" message after a client's order is created. */
