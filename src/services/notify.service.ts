@@ -67,27 +67,40 @@ function withChannelPrefix(number: string, channel: "whatsapp" | "sms"): string 
 }
 
 export function buildOrderMessage(input: OrderMessageInput): string {
-  const greeting = input.fullName ? `Namaste ${input.fullName} 🙏` : "Namaste 🙏";
+  const name = input.fullName?.trim() ? input.fullName : "Customer";
   const items = input.items.map((i) => `${i.quantity}x ${i.garmentType}`).join(", ");
   const due = Math.max(0, input.totalPaise - input.paidPaise);
 
   if (input.type === "delivered") {
     return [
-      greeting,
-      `Your order ${input.orderNumber} at ${BRAND_NAME} is ready for pickup!`,
+      `Dear ${name},`,
+      "",
+      `Your order ${input.orderNumber} at ${BRAND_NAME} is ready for pickup.`,
+      "",
       `Items: ${items}`,
-      `Total: ${formatINR(input.totalPaise)}${due > 0 ? ` | Balance: ${formatINR(due)}` : ""}`,
-      "Thank you for choosing us - see you soon!",
-    ].join("\n");
+      `Total: ${formatINR(input.totalPaise)} | Paid: ${formatINR(input.paidPaise)}${
+        due > 0 ? ` | Balance: ${formatINR(due)}` : ""
+      }`,
+      "",
+      "Please visit us to collect it. Thank you for your business.",
+      `- ${BRAND_NAME}`,
+    ]
+      .filter((line) => line.trim() !== "")
+      .join("\n");
   }
 
   return [
-    greeting,
-    `Welcome to ${BRAND_NAME}! Your order ${input.orderNumber} has been placed successfully.`,
+    `Dear ${name},`,
+    "",
+    `Thank you for your order at ${BRAND_NAME}. Order ${input.orderNumber} has been confirmed successfully.`,
+    "",
     `Items: ${items}`,
     `Total: ${formatINR(input.totalPaise)}${due > 0 ? ` | Balance due: ${formatINR(due)}` : ""}`,
-    `View your profile: ${input.publicProfileUrl ?? ""}`,
-    "Thank you for choosing us. We will keep you updated!",
+    "",
+    `View your order: ${input.publicProfileUrl ?? ""}`,
+    "",
+    "You will receive a notification when your order is ready for pickup.",
+    `- ${BRAND_NAME}`,
   ]
     .filter((line) => line.trim() !== "")
     .join("\n");
