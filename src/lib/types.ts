@@ -31,6 +31,8 @@ export interface NotifyResult {
   ok: boolean;
   error?: string;
   status?: number;
+  /** Set when more than one channel was delivered (e.g. WhatsApp + SMS). */
+  channels?: NotifyChannel[];
 }
 
 export interface GarmentRateEntry {

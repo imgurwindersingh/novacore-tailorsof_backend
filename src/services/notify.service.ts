@@ -189,37 +189,42 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
     result.ok === false &&
     (/template/i.test(result.error ?? "") || /21654|572006/i.test(result.error ?? ""));
 
-  async function sendSmsWithBody(body: string): Promise<NotifyResult> {
-    return sendTwilio(to, smsFrom, body, "sms", creds);
+  async function sendSms(): Promise<NotifyResult> {
+    let sms = await sendTwilio(to, smsFrom, customBody, "sms", creds);
+    if (!sms.ok && isTrialRestriction(sms)) {
+      sms = await sendTwilio(to, smsFrom, trialTemplateBody, "sms", creds);
+    }
+    return sms;
   }
 
   const whatsappEnabled =
     (creds["twilio_whatsapp_enabled"] ?? "true") === "true";
   const whatsappFrom = creds["twilio_whatsapp_from"]?.trim();
 
-  // WhatsApp first, SMS fallback (matches the previous dual-channel behavior).
+  // Send WhatsApp AND SMS together so the client gets both messages.
   if (whatsappEnabled && whatsappFrom) {
-    const whatsapp = await sendTwilio(to, whatsappFrom, customBody, "whatsapp", creds);
-    if (whatsapp.ok) return whatsapp;
-
-    let sms = await sendSmsWithBody(customBody);
-    if (!sms.ok && isTrialRestriction(sms)) {
-      sms = await sendSmsWithBody(trialTemplateBody);
+    const [whatsapp, sms] = await Promise.all([
+      sendTwilio(to, whatsappFrom, customBody, "whatsapp", creds),
+      sendSms(),
+    ]);
+    const sent = (["whatsapp", "sms"] as const).filter(
+      (ch) => (ch === "whatsapp" ? whatsapp.ok : sms.ok)
+    );
+    if (sent.length > 0) {
+      return {
+        channel: sent.length === 2 ? "whatsapp" : sent[0],
+        ok: true,
+        ...(sent.length === 2 ? { channels: ["whatsapp", "sms"] as const } : {}),
+      };
     }
-    return sms.ok
-      ? sms
-      : {
-          ...whatsapp,
-          channel: "none" as const,
-          error: `WhatsApp failed (${whatsapp.error}); SMS failed (${sms.error})`,
-        };
+    return {
+      channel: "none",
+      ok: false,
+      error: `WhatsApp failed (${whatsapp.error}); SMS failed (${sms.error})`,
+    };
   }
 
-  let sms = await sendSmsWithBody(customBody);
-  if (!sms.ok && isTrialRestriction(sms)) {
-    sms = await sendSmsWithBody(trialTemplateBody);
-  }
-  return sms;
+  return sendSms();
 }
 
 /** Send the "order placed" message after a client's order is created. */
