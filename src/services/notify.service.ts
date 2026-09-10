@@ -26,11 +26,15 @@ interface OrderMessageInput {
   paidPaise: number;
 }
 
+import { SignJWT } from "jose";
+
 const BRAND_NAME = "Novacore Tailorsoft";
 
 const CHANNEL_KEYS = [
   "vonage_api_key",
   "vonage_api_secret",
+  "vonage_application_id",
+  "vonage_private_key",
   "vonage_whatsapp_from",
   "vonage_sms_from",
   "vonage_whatsapp_enabled",
@@ -40,11 +44,51 @@ const CHANNEL_KEYS = [
 const ENV_FALLBACK: Record<string, string | undefined> = {
   vonage_api_key: process.env.VONAGE_API_KEY,
   vonage_api_secret: process.env.VONAGE_API_SECRET,
+  vonage_application_id: process.env.VONAGE_APPLICATION_ID,
+  vonage_private_key: process.env.VONAGE_PRIVATE_KEY,
   vonage_whatsapp_from: process.env.VONAGE_WHATSAPP_FROM,
   vonage_sms_from: process.env.VONAGE_SMS_FROM,
   vonage_whatsapp_enabled: process.env.VONAGE_WHATSAPP_ENABLED,
   vonage_sandbox: process.env.VONAGE_SANDBOX,
 };
+
+let _jwtCache: { token: string; exp: number } | null = null;
+
+async function getJwt(creds: Record<string, string>): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  if (_jwtCache && _jwtCache.exp > now + 30) return _jwtCache.token;
+
+  const appId = creds["vonage_application_id"];
+  const privateKeyPem = creds["vonage_private_key"];
+  if (!appId || !privateKeyPem) {
+    throw new Error("Vonage JWT credentials missing (VONAGE_APPLICATION_ID / VONAGE_PRIVATE_KEY)");
+  }
+
+  // Parse PEM → raw base64 → DER ArrayBuffer for Web Crypto API
+  const b64 = privateKeyPem
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s+/g, "");
+  const der = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+  const privateKey = await crypto.subtle.importKey(
+    "pkcs8",
+    der.buffer,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const token = await new SignJWT({ application_id: appId })
+    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(privateKey);
+
+  const exp = now + 300;
+  _jwtCache = { token, exp };
+  return token;
+}
 
 /** Normalize a client mobile to E.164 without the leading "+" (Vonage format). */
 export function toE164(mobile: string): string | null {
@@ -119,48 +163,61 @@ async function sendVonage(
   channel: "whatsapp" | "sms",
   creds: Record<string, string>
 ): Promise<NotifyResult> {
-  const apiKey = creds["vonage_api_key"];
-  const apiSecret = creds["vonage_api_secret"];
-  // WhatsApp runs on the sandbox endpoint until a WhatsApp Business Account is
-  // linked (then set VONAGE_SANDBOX=false). SMS always uses the production
-  // endpoint — the sandbox only reaches whitelisted recipients.
+  // JWT auth (Application ID + Private Key) for production; falls back to
+  // API Key/Secret Basic Auth if JWT fails (e.g., Messages capability not enabled).
+  const hasJwtCreds = Boolean(creds["vonage_application_id"] && creds["vonage_private_key"]);
   const sandbox = channel === "whatsapp" && (creds["vonage_sandbox"] || "true") === "true";
   const baseUrl = sandbox
     ? "https://messages-sandbox.nexmo.com/v1/messages"
     : "https://api.nexmo.com/v1/messages";
 
-  try {
-    const res = await fetch(baseUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to,
-        message_type: "text",
-        text,
-        channel,
-      }),
-    });
-    const resText = await res.text();
-    if (!res.ok) {
+  async function trySend(authHeader: string): Promise<NotifyResult> {
+    try {
+      const res = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to,
+          message_type: "text",
+          text,
+          channel,
+        }),
+      });
+      const resText = await res.text();
+      if (!res.ok) {
+        return {
+          channel,
+          ok: false,
+          error: `Vonage ${channel} API ${res.status}: ${extractError(resText, res.status)}`,
+          status: res.status,
+        };
+      }
+      return { channel, ok: true };
+    } catch (e) {
       return {
         channel,
         ok: false,
-        error: `Vonage ${channel} API ${res.status}: ${extractError(resText, res.status)}`,
+        error: e instanceof Error ? e.message : `Vonage ${channel} send failed`,
       };
     }
-    return { channel, ok: true };
-  } catch (e) {
-    return {
-      channel,
-      ok: false,
-      error: e instanceof Error ? e.message : `Vonage ${channel} send failed`,
-    };
   }
+
+  if (hasJwtCreds) {
+    const jwtResult = await trySend(`Bearer ${await getJwt(creds)}`);
+    if (jwtResult.ok || jwtResult.status !== 401) return jwtResult;
+  }
+  // Fallback to Basic Auth (API Key/Secret)
+  const apiKey = creds["vonage_api_key"];
+  const apiSecret = creds["vonage_api_secret"];
+  if (apiKey && apiSecret) {
+    return trySend(`Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`);
+  }
+  return { channel, ok: false, error: "No Vonage credentials configured" };
 }
 
 export async function sendOrderNotification(input: OrderMessageInput): Promise<NotifyResult> {

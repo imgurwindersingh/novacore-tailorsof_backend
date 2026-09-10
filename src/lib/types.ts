@@ -30,6 +30,7 @@ export interface NotifyResult {
   channel: NotifyChannel;
   ok: boolean;
   error?: string;
+  status?: number;
 }
 
 export interface GarmentRateEntry {
