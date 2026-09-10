@@ -14,17 +14,13 @@ export interface ShopSettings {
   defaultGarmentRates: Record<string, number>;
   /** Delivery-duration presets (in days) offered when creating an order. */
   deliveryPresets: number[];
-  /** True when Vonage Messages API credentials (API key + secret) are configured. */
-  vonageConfigured: boolean;
-  /** Whether client messages are enabled via Vonage WhatsApp. */
-  whatsappEnabled: boolean;
-  /** Vonage WhatsApp sender number used for outgoing messages. */
-  whatsappFromNumber: string | null;
-  /** Vonage SMS sender (number or alphanumeric) used when WhatsApp is unavailable. */
+  /** True when Twilio credentials (Account SID + Auth Token) are configured. */
+  twilioConfigured: boolean;
+  /** Twilio phone number used as the SMS sender. */
   smsFromNumber: string | null;
 }
 
-export type NotifyChannel = "whatsapp" | "sms" | "none";
+export type NotifyChannel = "sms" | "none";
 
 export interface NotifyResult {
   channel: NotifyChannel;

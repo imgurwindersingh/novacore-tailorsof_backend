@@ -12,7 +12,6 @@ import paymentRoutes from "./routes/payments.routes.js";
 import publicRoutes from "./routes/public.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
-import webhookRoutes from "./routes/webhook.routes.js";
 import { buildOpenApiSpec, renderSwaggerHtml } from "./lib/openapi.js";
 
 type Bindings = {
@@ -496,7 +495,6 @@ app.route("/api/payments", paymentRoutes);
 app.route("/api/public", publicRoutes);
 app.route("/api/settings", settingsRoutes);
 app.route("/api/upload", uploadRoutes);
-app.route("/api/webhooks", webhookRoutes);
 
 // ── 404 fallback ──────────────────────────────────────────────────────────────
 

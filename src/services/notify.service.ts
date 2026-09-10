@@ -3,15 +3,13 @@ import { formatINR } from "../lib/money.js";
 import type { NotifyResult } from "../lib/types.js";
 
 /**
- * Outbound client notifications — Vonage Messages API (SMS + WhatsApp).
+ * Outbound client notifications — Twilio SMS.
  * Credentials come exclusively from the backend environment variables/secrets:
- * `VONAGE_API_KEY`, `VONAGE_API_SECRET`, `VONAGE_WHATSAPP_FROM`,
- * `VONAGE_SMS_FROM`, `VONAGE_WHATSAPP_ENABLED`, `VONAGE_SANDBOX`.
+ * `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`.
  * They are never stored in or read from the database.
  *
- * WhatsApp is tried first when enabled; if it fails the message falls back to
- * SMS when a sender is configured. When no credentials are configured the
- * result is { channel: "none" } so callers can show a copy-ready message.
+ * The Twilio REST API is called directly (Basic Auth with Account SID +
+ * Auth Token) so no SDK dependency is required on Cloudflare Workers.
  */
 
 type NotifyType = "created" | "delivered";
@@ -26,116 +24,62 @@ interface OrderMessageInput {
   paidPaise: number;
 }
 
-import { SignJWT } from "jose";
-
 const BRAND_NAME = "Novacore Tailorsoft";
 
-const CHANNEL_KEYS = [
-  "vonage_api_key",
-  "vonage_api_secret",
-  "vonage_application_id",
-  "vonage_private_key",
-  "vonage_whatsapp_from",
-  "vonage_sms_from",
-  "vonage_whatsapp_enabled",
-  "vonage_sandbox",
+const ENV_KEYS = [
+  "twilio_account_sid",
+  "twilio_auth_token",
+  "twilio_phone_number",
+  "twilio_trial_mode",
 ] as const;
 
 const ENV_FALLBACK: Record<string, string | undefined> = {
-  vonage_api_key: process.env.VONAGE_API_KEY,
-  vonage_api_secret: process.env.VONAGE_API_SECRET,
-  vonage_application_id: process.env.VONAGE_APPLICATION_ID,
-  vonage_private_key: process.env.VONAGE_PRIVATE_KEY,
-  vonage_whatsapp_from: process.env.VONAGE_WHATSAPP_FROM,
-  vonage_sms_from: process.env.VONAGE_SMS_FROM,
-  vonage_whatsapp_enabled: process.env.VONAGE_WHATSAPP_ENABLED,
-  vonage_sandbox: process.env.VONAGE_SANDBOX,
+  twilio_account_sid: process.env.TWILIO_ACCOUNT_SID,
+  twilio_auth_token: process.env.TWILIO_AUTH_TOKEN,
+  twilio_phone_number: process.env.TWILIO_PHONE_NUMBER,
+  twilio_trial_mode: process.env.TWILIO_TRIAL_MODE,
 };
 
-let _jwtCache: { token: string; exp: number } | null = null;
-
-async function getJwt(creds: Record<string, string>): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  if (_jwtCache && _jwtCache.exp > now + 30) return _jwtCache.token;
-
-  const appId = creds["vonage_application_id"];
-  const privateKeyPem = creds["vonage_private_key"];
-  if (!appId || !privateKeyPem) {
-    throw new Error("Vonage JWT credentials missing (VONAGE_APPLICATION_ID / VONAGE_PRIVATE_KEY)");
-  }
-
-  // Parse PEM → raw base64 → DER ArrayBuffer for Web Crypto API
-  const b64 = privateKeyPem
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\s+/g, "");
-  const der = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-
-  const privateKey = await crypto.subtle.importKey(
-    "pkcs8",
-    der.buffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const token = await new SignJWT({ application_id: appId })
-    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
-    .setIssuedAt()
-    .setExpirationTime("5m")
-    .setJti(crypto.randomUUID())
-    .sign(privateKey);
-
-  const exp = now + 300;
-  _jwtCache = { token, exp };
-  return token;
-}
-
-/** Normalize a client mobile to E.164 without the leading "+" (Vonage format). */
-export function toE164(mobile: string): string | null {
+/** Normalize a client mobile to E.164 (Twilio format, e.g. `+919876543210`). */
+export function toE164(mobile: string): string {
   const digits = mobile.replace(/\D/g, "");
-  if (!digits) return null;
-  if (digits.length === 10) return `91${digits}`;
-  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
-  if (digits.length === 12 && digits.startsWith("91")) return digits;
-  if (digits.length === 13 && digits.startsWith("091")) return `91${digits.slice(3)}`;
-  if (digits.length >= 8 && digits.length <= 15) return digits;
-  return null;
+  let number: string;
+  if (digits.length === 10) number = `91${digits}`;
+  else if (digits.length === 11 && digits.startsWith("0")) number = `91${digits.slice(1)}`;
+  else if (digits.length === 12 && digits.startsWith("91")) number = digits;
+  else if (digits.length === 13 && digits.startsWith("091")) number = `91${digits.slice(3)}`;
+  else number = digits;
+  if (!number || number.length < 8) return "";
+  return `+${number}`;
 }
 
 export function buildOrderMessage(input: OrderMessageInput): string {
   const greeting = input.fullName ? `Namaste ${input.fullName} 🙏` : "Namaste 🙏";
-  const items = input.items.map((i) => `${i.quantity}× ${i.garmentType}`).join(", ");
+  const items = input.items.map((i) => `${i.quantity}x ${i.garmentType}`).join(", ");
   const due = Math.max(0, input.totalPaise - input.paidPaise);
 
   if (input.type === "delivered") {
     return [
       greeting,
-      "",
-      `Your order ${input.orderNumber} at ${BRAND_NAME} is ready for pickup! 🎉`,
-      `📦 ${items}`,
-      `💰 Total ${formatINR(input.totalPaise)} · Paid ${formatINR(input.paidPaise)}${
-        due > 0 ? ` · Balance ${formatINR(due)}` : ""
-      }`,
-      "",
-      "Thank you for choosing us — see you soon! ✨",
+      `Your order ${input.orderNumber} at ${BRAND_NAME} is ready for pickup!`,
+      `Items: ${items}`,
+      `Total: ${formatINR(input.totalPaise)}${due > 0 ? ` | Balance: ${formatINR(due)}` : ""}`,
+      "Thank you for choosing us - see you soon!",
     ].join("\n");
   }
 
   return [
     greeting,
-    "",
     `Welcome to ${BRAND_NAME}! Your order ${input.orderNumber} has been placed successfully.`,
-    `📦 ${items}`,
-    `💰 Total ${formatINR(input.totalPaise)}${due > 0 ? ` · Balance due ${formatINR(due)}` : ""}`,
-    "",
-    "Thank you for choosing us. We will keep you updated! ✨",
+    `Items: ${items}`,
+    `Total: ${formatINR(input.totalPaise)}${due > 0 ? ` | Balance due: ${formatINR(due)}` : ""}`,
+    "Thank you for choosing us. We will keep you updated!",
   ].join("\n");
 }
 
 async function readChannelSettings(): Promise<Record<string, string>> {
   const map: Record<string, string> = {};
-  for (const key of CHANNEL_KEYS) {
+  for (const key of ENV_KEYS) {
     const value = ENV_FALLBACK[key]?.trim();
     if (value) map[key] = value;
   }
@@ -145,80 +89,63 @@ async function readChannelSettings(): Promise<Record<string, string>> {
 function extractError(json: string, httpStatus: number): string {
   try {
     const parsed = JSON.parse(json) as {
-      title?: string;
       message?: string;
-      detail?: string;
-      error?: string;
+      code?: number | string;
+      more_info?: string;
     };
-    return parsed.title ?? parsed.message ?? parsed.detail ?? parsed.error ?? `HTTP ${httpStatus}`;
+    return parsed.message
+      ? `${parsed.message}${parsed.code ? ` (code ${parsed.code})` : ""}`
+      : `HTTP ${httpStatus}`;
   } catch {
     return (json || `HTTP ${httpStatus}`).slice(0, 300);
   }
 }
 
-/** Send one text message through the Vonage Messages API. */
-async function sendVonage(
+/** Send one SMS through the Twilio Messages API. */
+export async function sendSms(
   to: string,
   from: string,
   text: string,
-  channel: "whatsapp" | "sms",
   creds: Record<string, string>
 ): Promise<NotifyResult> {
-  // JWT auth (Application ID + Private Key) for production; falls back to
-  // API Key/Secret Basic Auth if JWT fails (e.g., Messages capability not enabled).
-  const hasJwtCreds = Boolean(creds["vonage_application_id"] && creds["vonage_private_key"]);
-  const sandbox = channel === "whatsapp" && (creds["vonage_sandbox"] || "true") === "true";
-  const baseUrl = sandbox
-    ? "https://messages-sandbox.nexmo.com/v1/messages"
-    : "https://api.nexmo.com/v1/messages";
+  const accountSid = creds["twilio_account_sid"];
+  const authToken = creds["twilio_auth_token"];
+  if (!accountSid || !authToken) {
+    return { channel: "none", ok: false, error: "Twilio credentials missing" };
+  }
+  const auth = `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`;
+  const body = new URLSearchParams({ To: to, From: from, Body: text });
 
-  async function trySend(authHeader: string): Promise<NotifyResult> {
-    try {
-      const res = await fetch(baseUrl, {
+  try {
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+      {
         method: "POST",
         headers: {
-          Authorization: authHeader,
-          "Content-Type": "application/json",
+          Authorization: auth,
+          "Content-Type": "application/x-www-form-urlencoded",
           Accept: "application/json",
         },
-        body: JSON.stringify({
-          from,
-          to,
-          message_type: "text",
-          text,
-          channel,
-        }),
-      });
-      const resText = await res.text();
-      if (!res.ok) {
-        return {
-          channel,
-          ok: false,
-          error: `Vonage ${channel} API ${res.status}: ${extractError(resText, res.status)}`,
-          status: res.status,
-        };
+        body: body.toString(),
       }
-      return { channel, ok: true };
-    } catch (e) {
+    );
+    const resText = await res.text();
+    if (!res.ok) {
       return {
-        channel,
+        channel: "sms",
         ok: false,
-        error: e instanceof Error ? e.message : `Vonage ${channel} send failed`,
+        error: `Twilio SMS API ${res.status}: ${extractError(resText, res.status)}`,
+        status: res.status,
       };
     }
+    return { channel: "sms", ok: true };
+  } catch (e) {
+    return {
+      channel: "sms",
+      ok: false,
+      error: e instanceof Error ? e.message : "Twilio SMS send failed",
+    };
   }
-
-  if (hasJwtCreds) {
-    const jwtResult = await trySend(`Bearer ${await getJwt(creds)}`);
-    if (jwtResult.ok || jwtResult.status !== 401) return jwtResult;
-  }
-  // Fallback to Basic Auth (API Key/Secret)
-  const apiKey = creds["vonage_api_key"];
-  const apiSecret = creds["vonage_api_secret"];
-  if (apiKey && apiSecret) {
-    return trySend(`Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`);
-  }
-  return { channel, ok: false, error: "No Vonage credentials configured" };
 }
 
 export async function sendOrderNotification(input: OrderMessageInput): Promise<NotifyResult> {
@@ -226,39 +153,26 @@ export async function sendOrderNotification(input: OrderMessageInput): Promise<N
   if (!to) return { channel: "none", ok: false, error: "Client mobile is not a valid number" };
 
   const creds = await readChannelSettings();
-  if (!creds["vonage_api_key"] || !creds["vonage_api_secret"]) {
-    return { channel: "none", ok: false, error: "No Vonage channel configured" };
+  const from = creds["twilio_phone_number"];
+  if (!from || !creds["twilio_account_sid"] || !creds["twilio_auth_token"]) {
+    return {
+      channel: "none",
+      ok: false,
+      error: "Nothing configured: set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER",
+    };
   }
 
-  const message = buildOrderMessage(input);
-  const whatsappEnabled =
-    (creds["vonage_whatsapp_enabled"] ?? "true") === "true";
-  const whatsappFrom = creds["vonage_whatsapp_from"]?.trim();
-  const smsFrom = creds["vonage_sms_from"]?.trim();
+  // During a Twilio trial, custom message bodies are blocked and the `Body`
+  // must be a predefined template name. After upgrading, set TWILIO_TRIAL_MODE
+  // to false (or remove it) to send the full custom order message.
+  const trial = (creds["twilio_trial_mode"] ?? "false") === "true";
+  const body = trial
+    ? input.type === "delivered"
+      ? "sms_delivery_updates"
+      : "sms_order_confirmation"
+    : buildOrderMessage(input);
 
-  if (whatsappEnabled && whatsappFrom) {
-    const whatsapp = await sendVonage(to, whatsappFrom, message, "whatsapp", creds);
-    if (whatsapp.ok) return whatsapp;
-    if (smsFrom) {
-      const sms = await sendVonage(to, smsFrom, message, "sms", creds);
-      return sms.ok
-        ? sms
-        : {
-            ...whatsapp,
-            channel: "none" as const,
-            error: `WhatsApp failed (${whatsapp.error}); SMS failed (${sms.error})`,
-          };
-    }
-    return whatsapp;
-  }
-
-  if (smsFrom) return sendVonage(to, smsFrom, message, "sms", creds);
-
-  return {
-    channel: "none",
-    ok: false,
-    error: "Nothing configured: set VONAGE_WHATSAPP_FROM or VONAGE_SMS_FROM",
-  };
+  return sendSms(to, from, body, creds);
 }
 
 /** Send the "order placed" message after a client's order is created. */
