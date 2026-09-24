@@ -104,8 +104,9 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
     const envHas = (key: string) => Boolean(process.env[key]?.trim());
     settings.infobipConfigured =
       envHas("INFOBIP_API_KEY") && envHas("INFOBIP_BASE_URL");
-    if (envHas("INFOBIP_WHATSAPP_FROM")) {
-      settings.whatsappFromNumber = process.env.INFOBIP_WHATSAPP_FROM!;
+    const whatsappSender = process.env.INFOBIP_WHATSAPP_SENDER || process.env.INFOBIP_WHATSAPP_FROM;
+    if (whatsappSender?.trim()) {
+      settings.whatsappFromNumber = whatsappSender;
     }
     if (process.env.INFOBIP_WHATSAPP_ENABLED) {
       settings.whatsappEnabled = process.env.INFOBIP_WHATSAPP_ENABLED === "true";

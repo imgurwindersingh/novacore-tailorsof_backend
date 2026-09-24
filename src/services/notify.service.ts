@@ -32,6 +32,7 @@ const ENV_KEYS = [
   "infobip_api_key",
   "infobip_base_url",
   "infobip_whatsapp_from",
+  "infobip_whatsapp_sender",
   "infobip_whatsapp_enabled",
   "infobip_sms_from",
   "infobip_sms_enabled",
@@ -108,6 +109,9 @@ async function readMessageSettings(): Promise<Record<string, string>> {
     infobip_api_key: process.env.INFOBIP_API_KEY,
     infobip_base_url: process.env.INFOBIP_BASE_URL,
     infobip_whatsapp_from: process.env.INFOBIP_WHATSAPP_FROM,
+    // Use this alternate secret when an older Worker variable already owns
+    // INFOBIP_WHATSAPP_FROM in Cloudflare.
+    infobip_whatsapp_sender: process.env.INFOBIP_WHATSAPP_SENDER,
     infobip_whatsapp_enabled: process.env.INFOBIP_WHATSAPP_ENABLED,
     infobip_sms_from: process.env.INFOBIP_SMS_FROM,
     infobip_sms_enabled: process.env.INFOBIP_SMS_ENABLED,
@@ -291,7 +295,7 @@ async function sendClientMessage(
   if (!to) return { channel: "none", ok: false, error: "Client mobile is not a valid number" };
 
   const creds = await readMessageSettings();
-  const whatsappFrom = creds["infobip_whatsapp_from"];
+  const whatsappFrom = creds["infobip_whatsapp_sender"] ?? creds["infobip_whatsapp_from"];
   const whatsappEnabled = (creds["infobip_whatsapp_enabled"] ?? "true") === "true";
   let whatsappError: string | undefined;
   if (whatsappEnabled && whatsappFrom && creds["infobip_api_key"] && creds["infobip_base_url"]) {
