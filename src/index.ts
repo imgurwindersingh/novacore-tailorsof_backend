@@ -14,6 +14,7 @@ import settingsRoutes from "./routes/settings.routes.js";
 import notificationRoutes from "./routes/notifications.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import { buildOpenApiSpec, renderSwaggerHtml } from "./lib/openapi.js";
+import { configureMessagingEnvironment } from "./services/notify.service.js";
 
 type Bindings = {
   DB?: ConstructorParameters<typeof import("@prisma/adapter-d1").PrismaD1>[0];
@@ -24,6 +25,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 // D1 is the production database on Cloudflare Workers. Never load better-sqlite3 there —
 // that native adapter references Node's `__filename` and crashes ESM/Workers.
 app.use("*", async (c, next) => {
+  configureMessagingEnvironment(c.env as Record<string, unknown>);
   if (c.env?.DB) ensureD1Prisma(c.env.DB);
   await next();
 });

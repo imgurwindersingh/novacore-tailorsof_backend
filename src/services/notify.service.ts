@@ -43,6 +43,16 @@ const ENV_KEYS = [
   "infobip_whatsapp_template_language",
 ] as const;
 
+type MessagingEnvironment = Record<string, unknown>;
+
+// Cloudflare supplies Worker secrets on `c.env`. `process.env` is useful for
+// Node, but is not the authoritative source in every Worker isolate.
+let workerMessagingEnvironment: MessagingEnvironment | undefined;
+
+export function configureMessagingEnvironment(environment: MessagingEnvironment | undefined): void {
+  if (environment) workerMessagingEnvironment = environment;
+}
+
 /** Normalize a client mobile to E.164 (e.g. `+919876543210`). */
 export function toE164(mobile: string): string {
   const digits = mobile.replace(/\D/g, "");
@@ -106,20 +116,20 @@ async function readMessageSettings(): Promise<Record<string, string>> {
   // Read at send time. In local Node development dotenv is loaded after module
   // imports, and static environment snapshots would otherwise miss .env values.
   const environment: Record<string, string | undefined> = {
-    infobip_api_key: process.env.INFOBIP_API_KEY,
-    infobip_base_url: process.env.INFOBIP_BASE_URL,
-    infobip_whatsapp_from: process.env.INFOBIP_WHATSAPP_FROM,
+    infobip_api_key: readEnvironmentValue("INFOBIP_API_KEY"),
+    infobip_base_url: readEnvironmentValue("INFOBIP_BASE_URL"),
+    infobip_whatsapp_from: readEnvironmentValue("INFOBIP_WHATSAPP_FROM"),
     // Use this alternate secret when an older Worker variable already owns
     // INFOBIP_WHATSAPP_FROM in Cloudflare.
-    infobip_whatsapp_sender: process.env.INFOBIP_WHATSAPP_SENDER,
-    infobip_whatsapp_enabled: process.env.INFOBIP_WHATSAPP_ENABLED,
-    infobip_sms_from: process.env.INFOBIP_SMS_FROM,
-    infobip_sms_enabled: process.env.INFOBIP_SMS_ENABLED,
-    infobip_whatsapp_template_welcome: process.env.INFOBIP_WHATSAPP_TEMPLATE_WELCOME,
-    infobip_whatsapp_template_order: process.env.INFOBIP_WHATSAPP_TEMPLATE_ORDER,
-    infobip_whatsapp_template_payment: process.env.INFOBIP_WHATSAPP_TEMPLATE_PAYMENT,
-    infobip_whatsapp_template_delivered: process.env.INFOBIP_WHATSAPP_TEMPLATE_DELIVERED,
-    infobip_whatsapp_template_language: process.env.INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE,
+    infobip_whatsapp_sender: readEnvironmentValue("INFOBIP_WHATSAPP_SENDER"),
+    infobip_whatsapp_enabled: readEnvironmentValue("INFOBIP_WHATSAPP_ENABLED"),
+    infobip_sms_from: readEnvironmentValue("INFOBIP_SMS_FROM"),
+    infobip_sms_enabled: readEnvironmentValue("INFOBIP_SMS_ENABLED"),
+    infobip_whatsapp_template_welcome: readEnvironmentValue("INFOBIP_WHATSAPP_TEMPLATE_WELCOME"),
+    infobip_whatsapp_template_order: readEnvironmentValue("INFOBIP_WHATSAPP_TEMPLATE_ORDER"),
+    infobip_whatsapp_template_payment: readEnvironmentValue("INFOBIP_WHATSAPP_TEMPLATE_PAYMENT"),
+    infobip_whatsapp_template_delivered: readEnvironmentValue("INFOBIP_WHATSAPP_TEMPLATE_DELIVERED"),
+    infobip_whatsapp_template_language: readEnvironmentValue("INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE"),
   };
   const map: Record<string, string> = {};
   for (const key of ENV_KEYS) {
@@ -127,6 +137,12 @@ async function readMessageSettings(): Promise<Record<string, string>> {
     if (value) map[key] = value;
   }
   return map;
+}
+
+export function readEnvironmentValue(key: string): string | undefined {
+  const workerValue = workerMessagingEnvironment?.[key];
+  if (typeof workerValue === "string") return workerValue;
+  return process.env[key];
 }
 
 function extractError(json: string, httpStatus: number): string {

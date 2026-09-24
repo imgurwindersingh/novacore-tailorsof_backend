@@ -13,6 +13,8 @@ const GST_NUMBER_KEY = "gst_number";
 const GARMENT_RATES_KEY = "default_garment_rates";
 const DELIVERY_PRESETS_KEY = "delivery_presets";
 
+import { readEnvironmentValue } from "./notify.service.js";
+
 function sanitizeMobile(mobile: string): string {
   return mobile.replace(/[^\d+]/g, "");
 }
@@ -101,23 +103,26 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
     }
     // Messaging credentials come exclusively from the backend environment
     // (Cloudflare vars / `wrangler secret put`). Never exposed for admin editing.
-    const envHas = (key: string) => Boolean(process.env[key]?.trim());
+    const envHas = (key: string) => Boolean(readEnvironmentValue(key)?.trim());
     settings.infobipConfigured =
       envHas("INFOBIP_API_KEY") && envHas("INFOBIP_BASE_URL");
-    const whatsappSender = process.env.INFOBIP_WHATSAPP_SENDER || process.env.INFOBIP_WHATSAPP_FROM;
+    const whatsappSender = readEnvironmentValue("INFOBIP_WHATSAPP_SENDER") || readEnvironmentValue("INFOBIP_WHATSAPP_FROM");
     if (whatsappSender?.trim()) {
       settings.whatsappFromNumber = whatsappSender;
     }
-    if (process.env.INFOBIP_WHATSAPP_ENABLED) {
-      settings.whatsappEnabled = process.env.INFOBIP_WHATSAPP_ENABLED === "true";
+    const whatsappEnabled = readEnvironmentValue("INFOBIP_WHATSAPP_ENABLED");
+    if (whatsappEnabled) {
+      settings.whatsappEnabled = whatsappEnabled === "true";
     }
-    if (envHas("INFOBIP_SMS_FROM")) {
-      settings.smsFromNumber = process.env.INFOBIP_SMS_FROM!;
+    const smsFrom = readEnvironmentValue("INFOBIP_SMS_FROM");
+    if (smsFrom?.trim()) {
+      settings.smsFromNumber = smsFrom;
     }
+    const smsEnabled = readEnvironmentValue("INFOBIP_SMS_ENABLED");
     settings.smsEnabled =
       settings.infobipConfigured &&
-      envHas("INFOBIP_SMS_FROM") &&
-      process.env.INFOBIP_SMS_ENABLED !== "false";
+      Boolean(smsFrom?.trim()) &&
+      smsEnabled !== "false";
     return ok(settings);
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to load settings");
