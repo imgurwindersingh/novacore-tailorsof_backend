@@ -11,6 +11,7 @@ import orderRoutes from "./routes/orders.routes.js";
 import paymentRoutes from "./routes/payments.routes.js";
 import publicRoutes from "./routes/public.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
+import notificationRoutes from "./routes/notifications.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import { buildOpenApiSpec, renderSwaggerHtml } from "./lib/openapi.js";
 
@@ -179,6 +180,7 @@ const ENDPOINTS_CATALOG = [
   { group: "Orders", method: "PATCH", path: "/api/orders/:id/revert-delivery", auth: true, desc: "Revert order status from delivered to in-progress" },
   { group: "Payments", method: "POST", path: "/api/payments/orders/:orderId", auth: true, desc: "Record a payment against an order (CASH, UPI, CARD, OTHER)" },
   { group: "Payments", method: "GET", path: "/api/payments/clients/:clientId", auth: true, desc: "Retrieve all payment transactions for a client" },
+  { group: "Notifications", method: "POST", path: "/api/notifications/test", auth: true, desc: "Send an explicit welcome/order/payment/delivery test notification" },
   { group: "Public", method: "GET", path: "/api/public/clients/:id", auth: false, desc: "Public read-only client profile: name, measurements & order summary (no auth required)" },
   { group: "Settings", method: "GET", path: "/api/settings", auth: true, desc: "Read shop settings (e.g. admin WhatsApp Business number)" },
   { group: "Settings", method: "PUT", path: "/api/settings/whatsapp-business", auth: true, desc: "Update the admin WhatsApp Business number used when sharing profiles" },
@@ -494,6 +496,7 @@ app.route("/api/orders", orderRoutes);
 app.route("/api/payments", paymentRoutes);
 app.route("/api/public", publicRoutes);
 app.route("/api/settings", settingsRoutes);
+app.route("/api/notifications", notificationRoutes);
 app.route("/api/upload", uploadRoutes);
 
 // ── 404 fallback ──────────────────────────────────────────────────────────────

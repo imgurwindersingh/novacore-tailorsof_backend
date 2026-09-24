@@ -20,9 +20,13 @@ export interface ShopSettings {
   whatsappEnabled: boolean;
   /** Infobip WhatsApp sender number used for outgoing messages. */
   whatsappFromNumber: string | null;
+  /** Whether the optional Infobip SMS fallback is configured. */
+  smsEnabled: boolean;
+  /** Sender ID / number used for SMS fallback. */
+  smsFromNumber: string | null;
 }
 
-export type NotifyChannel = "whatsapp" | "none";
+export type NotifyChannel = "whatsapp" | "sms" | "none";
 
 export interface NotifyResult {
   channel: NotifyChannel;

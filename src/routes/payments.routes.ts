@@ -3,6 +3,7 @@ import { rupeesToPaise } from "../lib/money.js";
 import { recordPaymentSchema } from "../lib/validators/client.js";
 import { requireAuth, type AuthVariables } from "../middleware/auth.middleware.js";
 import { listPaymentsByClient, recordPayment } from "../services/payments.service.js";
+import { notifyPaymentRecorded } from "../services/notify.service.js";
 
 const payments = new Hono<{ Variables: AuthVariables }>();
 
@@ -34,7 +35,8 @@ payments.post("/orders/:orderId", async (c) => {
   });
 
   if (!result.ok) return c.json({ error: result.error }, 422);
-  return c.json({ duePaise: result.data.duePaise }, 201);
+  const notified = await notifyPaymentRecorded(result.data.paymentId);
+  return c.json({ duePaise: result.data.duePaise, notified }, 201);
 });
 
 /**

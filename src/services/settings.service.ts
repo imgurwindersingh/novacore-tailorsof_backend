@@ -82,6 +82,8 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
       infobipConfigured: false,
       whatsappEnabled: true,
       whatsappFromNumber: null,
+      smsEnabled: false,
+      smsFromNumber: null,
     };
     for (const row of rows) {
       if (row.key === WHATSAPP_BUSINESS_KEY && row.value) {
@@ -108,6 +110,13 @@ export async function getShopSettings(): Promise<ServiceResult<ShopSettings>> {
     if (process.env.INFOBIP_WHATSAPP_ENABLED) {
       settings.whatsappEnabled = process.env.INFOBIP_WHATSAPP_ENABLED === "true";
     }
+    if (envHas("INFOBIP_SMS_FROM")) {
+      settings.smsFromNumber = process.env.INFOBIP_SMS_FROM!;
+    }
+    settings.smsEnabled =
+      settings.infobipConfigured &&
+      envHas("INFOBIP_SMS_FROM") &&
+      process.env.INFOBIP_SMS_ENABLED !== "false";
     return ok(settings);
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to load settings");

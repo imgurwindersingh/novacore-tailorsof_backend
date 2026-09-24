@@ -12,7 +12,7 @@ import {
   updateClient,
 } from "../services/clients.service.js";
 import { createOrderForClient } from "../services/orders.service.js";
-import { notifyOrderCreated } from "../services/notify.service.js";
+import { notifyClientWelcome, notifyOrderCreated } from "../services/notify.service.js";
 import type { CreateClientWithOrderDTO, CreateOrderDTO, MeasurementsDTO, UpdateClientDTO } from "../lib/types.js";
 
 const clients = new Hono<{ Variables: AuthVariables }>();
@@ -126,8 +126,9 @@ clients.post("/", async (c) => {
 
   const result = await createClientWithOrder(dto);
   if (!result.ok) return c.json({ error: result.error }, 422);
+  const welcomeNotified = await notifyClientWelcome(result.data.clientId);
   const notified = await notifyOrderCreated(result.data.clientId, result.data.orderId);
-  return c.json({ ...result.data, notified }, 201);
+  return c.json({ ...result.data, notified, welcomeNotified }, 201);
 });
 
 /**

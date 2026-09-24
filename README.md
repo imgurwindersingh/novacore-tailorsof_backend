@@ -87,6 +87,17 @@ npm run dev
 | `ADMIN_NAME`    | `Unique Tailors`               | Fallback admin display name                  |
 | `PORT`          | `3001`                         | HTTP port                                    |
 | `FRONTEND_URL`  | `http://localhost:3000`        | Allowed CORS origin                          |
+| `INFOBIP_API_KEY` | — | Infobip API key, stored as a production secret |
+| `INFOBIP_BASE_URL` | — | Infobip base URL, e.g. `your-id.api.infobip.com` |
+| `INFOBIP_WHATSAPP_FROM` | — | Approved WhatsApp Business sender number |
+| `INFOBIP_WHATSAPP_ENABLED` | `true` | Set `false` to use SMS only |
+| `INFOBIP_SMS_FROM` | — | Approved SMS sender ID/number; used if WhatsApp cannot send |
+| `INFOBIP_SMS_ENABLED` | `true` | Set `false` to disable SMS fallback |
+| `INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE` | `en` | Language of your approved templates, e.g. `en` or `en_US` |
+| `INFOBIP_WHATSAPP_TEMPLATE_WELCOME` | — | Approved welcome template name |
+| `INFOBIP_WHATSAPP_TEMPLATE_ORDER` | — | Approved order-confirmation template name |
+| `INFOBIP_WHATSAPP_TEMPLATE_PAYMENT` | — | Approved payment-receipt template name |
+| `INFOBIP_WHATSAPP_TEMPLATE_DELIVERED` | — | Approved ready-for-pickup template name |
 
 ---
 
@@ -123,6 +134,54 @@ Authorization: Bearer <token>
 |--------|---------------------------------|------|--------------------------------|
 | POST   | /api/payments/orders/:orderId   | ✓    | Record a payment on an order   |
 | GET    | /api/payments/clients/:clientId | ✓    | List all payments for a client |
+
+### Notifications
+| Method | Path                        | Auth | Description |
+|--------|-----------------------------|------|-------------|
+| POST   | /api/notifications/test     | ✓    | Send a demo `welcome`, `order`, `payment`, or `delivered` message without changing data |
+
+## Client messaging
+
+The API automatically attempts a WhatsApp message for a new client welcome,
+new order, payment receipt, and delivered order. If WhatsApp is unavailable
+(for example, the customer has not opted in or a template is not approved), it
+uses Infobip SMS when `INFOBIP_SMS_FROM` is configured. Message delivery never
+prevents the client, order, or payment from being saved; each write response
+includes a `notified` result so the app can show whether it was delivered.
+
+For production WhatsApp, obtain customer opt-in and use approved transactional
+templates in your Infobip account for business-initiated messages. Start with a
+small trial/paid credit and send only the four event messages above; that keeps
+the expected volume well within 10–20 messages per client.
+
+### First production setup
+
+1. Create one Infobip account and activate both WhatsApp Business and SMS.
+2. Register the sender(s), collect WhatsApp opt-in when registering a client,
+   and approve your order/payment templates with Meta.
+3. Set the credentials on the backend host. For Cloudflare Workers, use
+   `wrangler secret put INFOBIP_API_KEY`, then set `INFOBIP_BASE_URL`,
+   `INFOBIP_WHATSAPP_FROM`, and `INFOBIP_SMS_FROM` as Worker variables/secrets.
+4. Start with SMS enabled for the live demonstration. The code will use it
+   whenever WhatsApp rejects a message outside its customer-service window.
+
+WhatsApp free-form text can only be delivered while a customer-service session
+is open (normally after the client has messaged you). Outside that window,
+configure the matching approved WhatsApp templates with Infobip or let the SMS
+fallback deliver the receipt. This protects you from paying for messages that
+cannot be delivered.
+
+### Template bodies to approve
+
+Create these as **Utility** templates in Infobip/Meta. Keep the placeholders in
+the exact listed order; the backend fills them automatically.
+
+| Environment variable | Template body |
+|---|---|
+| `INFOBIP_WHATSAPP_TEMPLATE_WELCOME` | `Welcome to Novacore Tailorsoft, {{1}}. We have saved your profile and measurements. We will keep you updated about your orders.` |
+| `INFOBIP_WHATSAPP_TEMPLATE_ORDER` | `Dear {{1}}, your order {{2}} has been confirmed. Total: {{3}}. Balance due: {{4}}. Thank you.` |
+| `INFOBIP_WHATSAPP_TEMPLATE_PAYMENT` | `Dear {{1}}, we received {{3}} for order {{2}}. Total paid: {{4}}. Balance due: {{5}}. Thank you.` |
+| `INFOBIP_WHATSAPP_TEMPLATE_DELIVERED` | `Dear {{1}}, order {{2}} is ready for pickup. Total: {{3}}. Balance: {{4}}. Thank you.` |
 
 ### Dashboard
 | Method | Path                                  | Auth | Description               |
